@@ -3,7 +3,7 @@ export const site = {
   title: 'dev.log',
   description: '프론트엔드 개발하며 배우고 만든 것들을 기록합니다.',
   author: 'tjdsksro90',
-  url: 'https://example.com',
+  url: 'https://nextjs-blog-mu-two-37.vercel.app',
   links: {
     github: 'https://github.com/tjdsksro90',
     portfolio: 'https://nextjs-portfolio-jet-mu.vercel.app',
