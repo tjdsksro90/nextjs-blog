@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // fumadocs-mdx가 자동으로 만드는 파일
+    ".source/**",
   ]),
 ]);
 

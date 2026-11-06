@@ -1,0 +1,28 @@
+---
+title: '@next/mdx 대신 fumadocs-mdx를 고른 이유'
+date: 2026-11-06
+description: MDX를 페이지로 바꾸는 것만으로는 블로그를 만들기 부족했다. 글 목록, frontmatter 검사, 목차를 도구에 맡기기로 했다.
+tags: [Next.js, MDX, fumadocs]
+---
+
+처음에는 `@next/mdx`로 시작했다. MDX 파일을 페이지로 바꿔 주는 건 잘 됐지만, 블로그에 필요한 나머지는 직접 짜야 했다.
+
+## 직접 짜야 했던 것
+
+- 글 폴더를 읽어서 목록 만들기
+- frontmatter에 `title`, `date`가 빠졌는지 검사하기
+- 본문 제목을 뽑아서 목차 만들기
+
+## fumadocs-mdx가 맡아 주는 것
+
+글 폴더를 **컬렉션**으로 정의하고, frontmatter 규칙을 **zod 스키마**로 적는다.
+
+```ts title="src/lib/source.ts"
+export const posts = defineCollections({
+  type: 'doc',
+  dir: 'src/content/posts',
+  schema: postSchema,
+});
+```
+
+`date`를 빠뜨리거나 `tags`를 문자열로 쓰면 빌드할 때 바로 에러가 난다. 화면은 지금처럼 직접 만든다.
