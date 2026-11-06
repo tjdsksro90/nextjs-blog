@@ -1,12 +1,19 @@
+import { site } from '@/lib/site';
+
 export const metadata = { title: 'About' };
 
 # About
 
-안녕하세요, 프론트엔드 개발자 **tjdsksro90**입니다.
+안녕하세요, 프론트엔드 개발자 <strong>{site.author}</strong>입니다.
 
 이 블로그에는 공부한 내용과 프로젝트를 하며 겪은 일들을 기록합니다.
 
 ## 링크
 
-- [GitHub](https://github.com/tjdsksro90)
-- [Portfolio](https://nextjs-portfolio-jet-mu.vercel.app)
+<ul>
+  {site.links.map((link) => (
+    <li key={link.href}>
+      <a href={link.href} target="_blank" rel="noreferrer">{link.label}</a>
+    </li>
+  ))}
+</ul>
