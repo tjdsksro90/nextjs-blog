@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { TagChip } from '@/components/PostList';
+import { PostNav } from '@/components/PostNav';
 import { TableOfContents } from '@/components/TableOfContents';
-import { formatDate, getPosts } from '@/lib/posts';
+import { formatDate, getAdjacentPosts, getPosts } from '@/lib/posts';
 import { postSource } from '@/lib/source';
 
 // 빌드할 때 이 목록의 글들을 전부 HTML로 미리 만든다 (초안은 운영 빌드에서 빠진다)
@@ -38,6 +39,7 @@ export default async function PostPage({ params }: PageProps<'/posts/[slug]'>) {
   const { slug } = await params;
   const { data } = findPost(slug);
   const post = getPosts().find((p) => p.slug === slug);
+  const { prev, next } = getAdjacentPosts(slug);
   const MDX = data.body; // fumadocs-mdx가 MDX 본문을 React 컴포넌트로 바꿔 둔 것
   const toc = data.toc; // fumadocs-mdx가 빌드 때 본문의 ##, ### 제목으로 만들어 둔 목차
 
@@ -47,9 +49,11 @@ export default async function PostPage({ params }: PageProps<'/posts/[slug]'>) {
       <article className="min-w-0">
         <header className="mb-10 border-b border-line pb-8">
           {post && (
-            <time dateTime={post.date} className="font-mono text-sm text-muted">
-              {formatDate(post.date)}
-            </time>
+            <p className="font-mono text-sm text-muted">
+              <time dateTime={post.date}>{formatDate(post.date)}</time>
+              <span className="mx-2">·</span>
+              {post.readingMinutes}분
+            </p>
           )}
           <h1 className="mt-3 text-3xl font-bold leading-tight tracking-tight sm:text-4xl">{data.title}</h1>
           {data.description && <p className="mt-4 text-lg leading-relaxed text-muted">{data.description}</p>}
@@ -65,6 +69,8 @@ export default async function PostPage({ params }: PageProps<'/posts/[slug]'>) {
         <div className="prose prose-neutral max-w-none dark:prose-invert prose-headings:tracking-tight prose-a:text-accent">
           <MDX />
         </div>
+
+        <PostNav prev={prev} next={next} />
       </article>
 
       <aside className="hidden xl:block">
