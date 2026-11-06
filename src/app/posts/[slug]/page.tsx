@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { TableOfContents } from '@/components/TableOfContents';
 import { formatDate, getPosts } from '@/lib/posts';
 import { postSource } from '@/lib/source';
 
@@ -37,31 +38,39 @@ export default async function PostPage({ params }: PageProps<'/posts/[slug]'>) {
   const { data } = findPost(slug);
   const post = getPosts().find((p) => p.slug === slug);
   const MDX = data.body; // fumadocs-mdx가 MDX 본문을 React 컴포넌트로 바꿔 둔 것
+  const toc = data.toc; // fumadocs-mdx가 빌드 때 본문의 ##, ### 제목으로 만들어 둔 목차
 
   return (
-    <article className="pt-14">
-      <header className="mb-10 border-b border-line pb-8">
-        {post && (
-          <time dateTime={post.date} className="font-mono text-sm text-muted">
-            {formatDate(post.date)}
-          </time>
-        )}
-        <h1 className="mt-3 text-3xl font-bold leading-tight tracking-tight sm:text-4xl">{data.title}</h1>
-        {data.description && <p className="mt-4 text-lg leading-relaxed text-muted">{data.description}</p>}
-        {data.tags.length > 0 && (
-          <div className="mt-5 flex flex-wrap gap-2 text-xs text-muted">
-            {data.tags.map((tag) => (
-              <span key={tag} className="rounded-md border border-line px-2 py-0.5">
-                #{tag}
-              </span>
-            ))}
-          </div>
-        )}
-      </header>
+    // 넓은 화면(xl)에서는 오른쪽에 목차 칸을 두고, 그 칸만큼 본문 폭 바깥으로 튀어나가게 한다
+    <div className="pt-14 xl:-mr-64 xl:grid xl:grid-cols-[minmax(0,1fr)_14rem] xl:gap-10">
+      <article className="min-w-0">
+        <header className="mb-10 border-b border-line pb-8">
+          {post && (
+            <time dateTime={post.date} className="font-mono text-sm text-muted">
+              {formatDate(post.date)}
+            </time>
+          )}
+          <h1 className="mt-3 text-3xl font-bold leading-tight tracking-tight sm:text-4xl">{data.title}</h1>
+          {data.description && <p className="mt-4 text-lg leading-relaxed text-muted">{data.description}</p>}
+          {data.tags.length > 0 && (
+            <div className="mt-5 flex flex-wrap gap-2 text-xs text-muted">
+              {data.tags.map((tag) => (
+                <span key={tag} className="rounded-md border border-line px-2 py-0.5">
+                  #{tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </header>
 
-      <div className="prose prose-neutral max-w-none dark:prose-invert prose-headings:tracking-tight prose-a:text-accent">
-        <MDX />
-      </div>
-    </article>
+        <div className="prose prose-neutral max-w-none dark:prose-invert prose-headings:tracking-tight prose-a:text-accent">
+          <MDX />
+        </div>
+      </article>
+
+      <aside className="hidden xl:block">
+        <TableOfContents toc={toc} />
+      </aside>
+    </div>
   );
 }
