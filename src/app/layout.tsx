@@ -17,8 +17,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(site.url), // OG 이미지 등 상대 주소를 전체 주소로 바꿀 때 기준
   title: { default: site.title, template: `%s | ${site.title}` },
   description: site.description,
+  // <head>에 <link rel="alternate" type="application/rss+xml">를 넣어 구독기가 피드를 찾게 한다
+  alternates: { types: { 'application/rss+xml': '/rss.xml' } },
+  openGraph: { siteName: site.title, locale: 'ko_KR', type: 'website' },
 };
 
 export default function RootLayout({ children }: LayoutProps<'/'>) {
