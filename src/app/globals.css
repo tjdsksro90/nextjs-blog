@@ -27,6 +27,7 @@
   --color-muted: var(--muted);
   --color-line: var(--line);
   --color-accent: var(--accent);
+  --color-code-bg: var(--code-bg);
   --font-sans: var(--font-geist-sans), 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
