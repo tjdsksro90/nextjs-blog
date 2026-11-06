@@ -31,11 +31,6 @@ pnpm add three @react-three/fiber @react-three/drei
 pnpm add -D @types/three
 ```
 
-<Callout type="warn" title="설치하다가 EPERM 에러가 났다">
-  윈도우에서 개발 서버를 켠 채로 설치하면 `EPERM: operation not permitted, rename ...` 에러가 날 수 있다. 개발 서버가
-  `node_modules` 파일을 붙잡고 있어서 pnpm이 이름을 바꾸지 못하는 것이다. 개발 서버를 끄고 다시 설치하면 된다.
-</Callout>
-
 ## 3. 서버와 클라이언트 나누기
 
 three.js는 브라우저의 WebGL(그래픽카드)로 그린다. 그러니 3D 장면은 **클라이언트 컴포넌트**여야 한다. 다만 페이지 전체를 클라이언트로 만들 필요는 없다.
