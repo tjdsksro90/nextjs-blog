@@ -1,0 +1,161 @@
+---
+title: three.js 첫걸음, Geometry와 Material과 Mesh로 행성 하나 띄우기
+date: 2026-11-07T02:11
+description: 블로그에 태그 은하 페이지를 만들기로 하고, React Three Fiber로 행성 하나를 띄웠다. three.js의 뼈대와 leva로 값을 찾아가는 작업 방식까지 정리한다.
+tags: [three.js, React]
+---
+
+블로그 태그를 우주로 보여 주는 페이지(`/explore`)를 만들기로 했다. 태그는 행성, 글은 행성 주위를 도는 위성이다. 처음부터 다 만들면 어떤 코드가 화면의 어디인지 알기 어려워서, **행성 하나**부터 시작했다.
+
+## 1. three.js의 뼈대
+
+three.js 화면은 항상 이 구조다.
+
+```
+Scene (무대)
+ ├─ Camera  : 어디서 바라보나
+ ├─ Light   : 빛이 어디서 오나
+ └─ Mesh    : 물체 = Geometry(모양) + Material(표면)
+```
+
+- **Geometry**: 모양이다. 꼭짓점과 면의 정보다. `BoxGeometry`, `SphereGeometry`, `IcosahedronGeometry` 등이 있다.
+- **Material**: 표면이다. 색, 거칠기, 금속인지, 투명도, 스스로 빛나는지를 정한다.
+- **Mesh**: 둘을 합친, 화면에 실제로 놓이는 물체다. 위치, 회전, 크기를 가진다.
+
+## 2. React Three Fiber
+
+three.js를 그대로 쓰면 `new THREE.Scene()`, `new THREE.Mesh(...)`, `renderer.render(...)`를 직접 다 적어야 한다. **React Three Fiber**(R3F)를 쓰면 이걸 React 컴포넌트로 쓸 수 있다.
+
+```bash
+pnpm add three @react-three/fiber @react-three/drei
+pnpm add -D @types/three
+```
+
+<Callout type="warn" title="설치하다가 EPERM 에러가 났다">
+  윈도우에서 개발 서버를 켠 채로 설치하면 `EPERM: operation not permitted, rename ...` 에러가 날 수 있다. 개발 서버가
+  `node_modules` 파일을 붙잡고 있어서 pnpm이 이름을 바꾸지 못하는 것이다. 개발 서버를 끄고 다시 설치하면 된다.
+</Callout>
+
+## 3. 서버와 클라이언트 나누기
+
+three.js는 브라우저의 WebGL(그래픽카드)로 그린다. 그러니 3D 장면은 **클라이언트 컴포넌트**여야 한다. 다만 페이지 전체를 클라이언트로 만들 필요는 없다.
+
+```tsx title="src/app/explore/page.tsx"
+// 서버 컴포넌트: 메타데이터, 나중에 글 데이터 읽기
+export default function ExplorePage() {
+  return (
+    <section>
+      <h1>Explore</h1>
+      {/* Canvas는 부모 크기를 꽉 채우니 부모에 높이를 꼭 준다 */}
+      <div className="h-[520px] overflow-hidden rounded-xl border border-line">
+        <GalaxyCanvas />
+      </div>
+    </section>
+  );
+}
+```
+
+```tsx title="src/components/explore/GalaxyCanvas.tsx"
+'use client';
+
+export function GalaxyCanvas() {
+  return (
+    <Canvas camera={{ position: [0, 1.5, 5], fov: 50 }}>
+      <color attach="background" args={['#070814']} />
+      <ambientLight intensity={0.35} color="#8890ff" />
+      <pointLight position={[-4, 3, 4]} intensity={60} color="#fff0d0" />
+      <Planet />
+      <OrbitControls enablePan={false} minDistance={3} maxDistance={12} />
+    </Canvas>
+  );
+}
+```
+
+- `<Canvas>`가 Scene, Camera, Renderer를 한 번에 만든다. 카메라는 `[x, y, z] = [0, 1.5, 5]`, 살짝 위에서 앞을 본다.
+- 조명은 두 개다. `ambientLight`는 모든 면을 고르게 살짝 밝히고, `pointLight`는 한 점에서 퍼지는 빛이라 명암을 만든다.
+- `OrbitControls`(drei): 마우스 드래그로 카메라를 돌리고 휠로 확대한다.
+
+## 4. 행성 하나 = Mesh 하나
+
+```tsx title="src/components/explore/GalaxyCanvas.tsx"
+function Planet() {
+  const ref = useRef<Mesh>(null);
+
+  useFrame((_, delta) => {
+    if (ref.current) ref.current.rotation.y += delta * 0.4;
+  });
+
+  return (
+    <mesh ref={ref}>
+      <icosahedronGeometry args={[1, 1]} />
+      <meshStandardMaterial color="#f0997b" roughness={0.7} flatShading />
+    </mesh>
+  );
+}
+```
+
+- **Geometry**: `icosahedronGeometry args={[1, 1]}`. 반지름 1, detail 1이다. detail은 면을 몇 번 쪼갤지인데, 0이면 면 20개, 1이면 80개다. 작을수록 각지고 클수록 동그란 구에 가까워진다.
+- **Material**: `meshStandardMaterial`. 주황색에 거칠기 0.7(무광에 가까움), `flatShading`으로 면마다 명암을 따로 줘서 각진 느낌을 낸다.
+- **`useFrame`**: 매 프레임(1초에 약 60번) 실행된다. `delta`는 지난 프레임부터 흐른 시간(초)이라, 화면 주사율이 달라도 1초에 0.4 라디안씩 같은 속도로 돈다.
+
+### 조명을 빼면 왜 새까매질까
+
+조명 두 줄을 지우면 행성이 새까맣게 된다.
+
+- `MeshStandardMaterial`은 빛이 표면에서 어떻게 반사되는지 **계산하는** 재질이다. 빛이 0이면 결과도 0이라 검다.
+- `MeshBasicMaterial`은 빛 계산을 하지 않고 정해진 색을 그대로 칠한다. 조명이 없어도 보이지만 입체감(명암)이 없다. 스스로 빛나는 항성을 만들 때 쓸 생각이다.
+
+## 5. 값은 눈으로 보면서 찾는다
+
+3D 작업은 숫자 하나를 정할 때도 눈으로 봐야 안다. 빛 세기 60이 적당한지, 반지름 1이 큰지 작은지는 화면을 봐야 알 수 있다. 코드를 바꾸고 새로고침하는 대신 **작업용 도구**를 깔았다.
+
+```tsx title="src/components/explore/GalaxyCanvas.tsx"
+const isDev = process.env.NODE_ENV === 'development';
+
+const planet = useControls('Planet', {
+  radius: { value: 1, min: 0.2, max: 3, step: 0.1 },
+  detail: { value: 1, min: 0, max: 5, step: 1 },
+  color: '#f0997b',
+  flatShading: true,
+  wireframe: false,
+});
+
+// Canvas 안
+{
+  isDev && (
+    <>
+      <axesHelper args={[3]} />
+      <gridHelper args={[10, 10]} />
+    </>
+  );
+}
+
+// Canvas 밖
+<Leva hidden={!isDev} />;
+```
+
+- **`axesHelper`**: 빨강 X(오른쪽), 초록 Y(위), 파랑 Z(화면 앞쪽) 화살표. 3D에서 가장 헷갈리는 방향을 바로 알 수 있다.
+- **`gridHelper`**: 한 칸이 1인 바닥 격자. "반지름 1 = 한 칸"으로 크기를 가늠한다.
+- **`leva`**: 화면에 슬라이더 패널을 띄운다. 드래그하면서 바로 보고, 마음에 드는 값을 찾으면 코드의 `value`에 적어 둔다.
+- 셋 다 `isDev`로 감싸서 **배포된 사이트에는 보이지 않는다.** 운영에서는 `value`에 적은 기본값이 그대로 쓰인다.
+
+<Callout type="tip" title="wireframe으로 Geometry 보기">
+  `wireframe`을 켜면 Material 없이 Geometry의 뼈대(선)만 보인다. detail을 0에서 5까지 올려 보면 면이 어떻게 쪼개지는지
+  눈으로 볼 수 있다.
+</Callout>
+
+## 마무리
+
+- three.js 화면은 **Scene, Camera, Light, Mesh**로 이뤄진다. Mesh는 Geometry(모양)와 Material(표면)의 조합이다.
+- R3F를 쓰면 이 구조를 React 컴포넌트로 쓴다. 3D 장면만 클라이언트 컴포넌트로 두고, 페이지는 서버 컴포넌트로 둔다.
+- `MeshStandardMaterial`은 빛을 계산해서 조명이 꼭 필요하고, `MeshBasicMaterial`은 빛과 상관없이 색을 칠한다.
+- 3D는 코드를 바꾸고 화면을 보는 반복이다. 축, 격자, 슬라이더 패널을 먼저 깔아 두면 그 반복이 훨씬 빨라진다.
+
+다음은 항성, 고리, 위성, 배경 별을 만들면서 Geometry를 더 다뤄 볼 차례다.
+
+## 참고 자료
+
+<LinkCard href="https://threejs.org/docs/" />
+<LinkCard href="https://r3f.docs.pmnd.rs/getting-started/introduction" />
+<LinkCard href="https://drei.docs.pmnd.rs/" />
+<LinkCard href="https://github.com/pmndrs/leva" />

@@ -1,0 +1,110 @@
+---
+title: fumadocs-core의 AnchorProvider, data-active로 현재 위치 표시
+date: 2026-11-06T20:54
+description: 목차 데이터는 fumadocs가 빌드 때 만들어 주고, 화면은 직접 그렸다. 지금 읽는 제목을 강조하는 기능까지 'use client' 없이 붙인 과정을 정리한다.
+tags: [fumadocs, React]
+---
+
+긴 글에는 오른쪽에 목차가 있으면 편하다. 직접 만든다면 할 일이 꽤 많다.
+
+1. 본문에서 `##`, `###` 제목을 찾아 목록 만들기
+2. 제목마다 `id`를 붙여서 `#제목`으로 이동할 수 있게 하기
+3. 스크롤할 때 지금 읽는 제목을 찾아 강조하기
+
+fumadocs-mdx와 fumadocs-core를 쓰면 1~3번의 **로직**은 맡기고, **화면만** 직접 만들 수 있다. 이번 글은 그 헤드리스 방식으로 목차를 만든 기록이다.
+
+## 1. 목차 데이터는 이미 있다
+
+fumadocs-mdx는 빌드할 때 본문 제목을 읽어서 글 데이터에 `toc`를 넣어 준다. 제목에 `id`도 붙여 준다(1, 2번 해결).
+
+```ts
+const { data } = postSource.getPage([slug]);
+data.toc;
+// [
+//   { title: '1. 목차 데이터는 이미 있다', url: '#1-목차-데이터는-이미-있다', depth: 2 },
+//   ...
+// ]
+```
+
+`depth`는 제목 단계다. `##`이면 2, `###`이면 3이다.
+
+## 2. 지금 읽는 제목 강조하기
+
+3번은 스크롤을 지켜봐야 하니 브라우저에서 돌아가는 코드가 필요하다. fumadocs-core의 `fumadocs-core/toc`가 이걸 컴포넌트로 준다.
+
+- `AnchorProvider`: 제목들이 화면에 들어오는지 지켜본다(IntersectionObserver).
+- `TOCItem`: 목차 링크 하나. 자기 제목이 지금 보이면 `data-active="true"`가 붙는다.
+
+```tsx title="src/components/TableOfContents.tsx"
+import { AnchorProvider, TOCItem, type TOCItemType } from 'fumadocs-core/toc';
+
+export function TableOfContents({ toc }: { toc: TOCItemType[] }) {
+  if (toc.length === 0) return null;
+
+  return (
+    <AnchorProvider toc={toc} single>
+      <nav aria-label="목차" className="sticky top-24 text-sm">
+        <ul className="space-y-2 border-l border-line">
+          {toc.map((item) => (
+            <li key={item.url}>
+              <TOCItem
+                href={item.url}
+                className={`-ml-px block border-l border-transparent text-muted
+                  data-[active=true]:border-accent data-[active=true]:text-accent
+                  ${item.depth >= 3 ? 'pl-7' : 'pl-4'}`}
+              >
+                {item.title}
+              </TOCItem>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    </AnchorProvider>
+  );
+}
+```
+
+- `single`: 강조되는 제목을 한 번에 하나만 둔다. 없으면 화면에 보이는 제목이 전부 강조된다.
+- `data-[active=true]:`: Tailwind의 속성 선택자다. `data-active="true"`가 붙은 링크만 포인트 색이 된다. 상태를 `useState`로 관리할 필요가 없다.
+- `###` 제목(`depth >= 3`)은 들여쓰기를 더 줬다.
+
+## 3. 'use client'가 없는 이유
+
+이 파일에는 `'use client'`가 없다. 스크롤을 지켜보는 건 클라이언트 일인데 어떻게 될까?
+
+`AnchorProvider`와 `TOCItem`이 **이미 클라이언트 컴포넌트**이기 때문이다. 내 컴포넌트는 그 둘을 배치하고 클래스를 주기만 하니 서버 컴포넌트로 둬도 된다. 브라우저로 가는 JS는 fumadocs의 그 두 컴포넌트 몫뿐이다.
+
+<Callout type="tip" title="클라이언트 경계는 최대한 아래로">
+  `'use client'`를 붙인 파일과 그 파일이 불러오는 것들은 전부 브라우저로 간다. 상호작용이 필요한 가장 작은 부분만
+  클라이언트로 두면 보내는 JS가 줄어든다.
+</Callout>
+
+## 4. 배치: 본문 폭은 그대로, 목차만 바깥으로
+
+블로그 본문은 읽기 좋은 폭(`max-w-3xl`)으로 맞춰 두었다. 목차까지 그 안에 넣으면 본문이 좁아진다. 그래서 넓은 화면에서만 목차 칸을 두고, **그 칸만큼 오른쪽으로 튀어나가게** 했다.
+
+```tsx title="src/app/posts/[slug]/page.tsx"
+<div className="xl:-mr-64 xl:grid xl:grid-cols-[minmax(0,1fr)_14rem] xl:gap-10">
+  <article className="min-w-0">{/* 본문 */}</article>
+  <aside className="hidden xl:block">
+    <TableOfContents toc={data.toc} />
+  </aside>
+</div>
+```
+
+- `xl:-mr-64`: 오른쪽 여백을 음수로 줘서, 목차 칸(14rem)과 간격(2.5rem)만큼 바깥으로 넓힌다.
+- `minmax(0, 1fr)`와 `min-w-0`: 긴 코드 블록이 있어도 본문 칸이 넘치지 않고 코드 블록 안에서 가로 스크롤이 생기게 한다.
+- 좁은 화면에서는 목차를 숨긴다(`hidden xl:block`).
+
+## 마무리
+
+- 목차 데이터(`toc`)와 제목 `id`는 fumadocs-mdx가 빌드 때 만들어 준다.
+- 강조 로직은 `AnchorProvider`와 `TOCItem`에 맡기고, `data-active` 속성으로 스타일만 입힌다.
+- 이미 클라이언트인 컴포넌트를 배치만 할 때는 내 파일에 `'use client'`가 필요 없다.
+- 이것이 fumadocs를 **헤드리스**로 쓴다는 의미다. 로직은 가져오고, 화면은 내 것으로 만든다.
+
+## 참고 자료
+
+<LinkCard href="https://fumadocs.dev/docs/headless/components/toc" />
+<LinkCard href="https://react.dev/reference/rsc/use-client" />
+<LinkCard href="https://tailwindcss.com/docs/hover-focus-and-other-states" />

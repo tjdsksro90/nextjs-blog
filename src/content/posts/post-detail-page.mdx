@@ -1,0 +1,102 @@
+---
+title: generateStaticParams, params가 Promise인 이유, instant = false
+date: 2026-11-06T20:38
+description: '[slug] 동적 라우트로 글 페이지를 만들고, 빌드 때 모든 글을 HTML로 미리 만들었다. params가 Promise인 이유와 개발 모드 경고까지 정리한다.'
+tags: [Next.js, fumadocs]
+---
+
+홈에 글 목록을 띄웠으니([이전 글](/posts/fumadocs-collection)) 이제 글을 눌렀을 때 보일 페이지가 필요하다. 글은 계속 늘어나니 글마다 파일을 만들 수는 없고, **주소의 일부를 변수로 받는 동적 라우트**를 쓴다.
+
+## 1. 폴더 이름이 곧 주소
+
+```
+src/app/posts/[slug]/page.tsx  →  /posts/hello-world, /posts/fumadocs-mdx ...
+```
+
+대괄호로 감싼 폴더 `[slug]`는 "이 자리에 무엇이든 올 수 있다"는 뜻이다. `/posts/hello-world`로 들어오면 `slug`에 `'hello-world'`가 담긴다.
+
+## 2. params는 Promise다
+
+```tsx title="src/app/posts/[slug]/page.tsx"
+export default async function PostPage({ params }: PageProps<'/posts/[slug]'>) {
+  const { slug } = await params;
+  const page = postSource.getPage([slug]);
+  if (!page) notFound();
+
+  const MDX = page.data.body;
+  return <MDX />;
+}
+```
+
+예전 Next.js에서는 `params.slug`로 바로 꺼냈는데, 지금은 `await params`로 기다려야 한다.
+
+### 왜 Promise일까
+
+Next.js는 페이지를 **가능한 한 미리 만들어 두고**, 요청마다 달라지는 부분만 나중에 채우려고 한다. 주소 값(`params`)은 요청이 와야 확정되는 값이라, "아직 없을 수도 있는 값"이라는 뜻으로 Promise로 준다. 값이 필요한 순간에만 `await`하면, 그 전까지의 부분은 미리 만들어 둘 수 있다.
+
+<Callout title="PageProps 타입">
+  `PageProps<'/posts/[slug]'>`는 Next.js가 폴더 구조를 보고 자동으로 만들어 주는 전역 타입이다. 주소 문자열만 넣으면 `params`의 모양(`{ slug: string }`)까지 맞춰 준다. import도 필요 없다.
+</Callout>
+
+## 3. 빌드 때 모든 글을 미리 만들기
+
+글은 빌드할 때 이미 다 정해져 있다. 그렇다면 요청이 올 때마다 만들 필요 없이 **빌드 때 HTML로 만들어 두면** 된다.
+
+```tsx
+export function generateStaticParams() {
+  return getPosts().map((post) => ({ slug: post.slug }));
+}
+```
+
+`generateStaticParams`가 `[{ slug: 'hello-world' }, { slug: 'fumadocs-mdx' }, ...]`를 돌려주면, Next.js는 빌드할 때 이 목록의 페이지를 전부 만든다. `getPosts()`는 운영 빌드에서 초안을 빼 주니, 초안 글은 만들어지지도 않는다.
+
+## 4. 글마다 다른 title과 OG 태그
+
+```tsx
+export async function generateMetadata({ params }: PageProps<'/posts/[slug]'>): Promise<Metadata> {
+  const { slug } = await params;
+  const { data } = findPost(slug);
+  return {
+    title: data.title,
+    description: data.description,
+    keywords: data.tags,
+    openGraph: { type: 'article', title: data.title, description: data.description },
+  };
+}
+```
+
+루트 레이아웃에 `title.template: '%s | dev.log'`를 걸어 두었기 때문에, 탭 제목은 `글 제목 | dev.log`가 된다. 카카오톡이나 슬랙에 링크를 붙였을 때 보이는 미리보기(OG)도 글마다 달라진다.
+
+## 5. 만난 문제: 개발 모드에서만 뜨는 경고
+
+여기까지 하고 개발 서버로 글을 열었더니 에러 화면이 떴다.
+
+### 원인
+
+Next.js 16 개발 모드에는 **Instant Navigation 검사**가 있다. 페이지를 이동할 때 바로 보여 줄 수 있는 부분과 기다려야 하는 부분을 나눴는지(= `<Suspense>`로 감쌌는지) 확인한다. 이 페이지는 `params`를 `<Suspense>` 밖에서 기다리니 "이동이 느려질 수 있다"고 경고한 것이다.
+
+### 해결
+
+이 페이지는 `generateStaticParams`로 **모든 글이 빌드 때 HTML로 만들어지므로**, 이동할 때 기다릴 일이 없다. 검사가 걱정하는 상황이 생기지 않으니 이 페이지에서는 끈다.
+
+```tsx
+export const instant = false;
+```
+
+<Callout type="warn" title="무조건 끄면 안 된다">
+  요청마다 데이터를 새로 불러오는 페이지라면 이 경고는 진짜 문제를 알려 주는 것이다. 그때는 끄지 말고 느린 부분을 `<Suspense>`로 감싸야 한다.
+</Callout>
+
+## 마무리
+
+- `[slug]` 폴더 하나로 모든 글 페이지를 만든다.
+- `params`는 Promise라 `await`해서 꺼낸다. 값이 필요한 곳까지 미리 만들어 둘 수 있게 하려는 설계다.
+- `generateStaticParams`로 빌드 때 모든 글을 HTML로 만든다.
+- 모든 페이지가 미리 만들어지는 경우에만 `instant = false`로 개발 모드 검사를 끈다.
+
+## 참고 자료
+
+<LinkCard href="https://nextjs.org/docs/app/api-reference/file-conventions/dynamic-routes" />
+<LinkCard href="https://nextjs.org/docs/app/api-reference/functions/generate-static-params" />
+<LinkCard href="https://nextjs.org/docs/app/api-reference/functions/generate-metadata" />
+<LinkCard href="https://nextjs.org/docs/app/api-reference/file-conventions/route-segment-config/instant" />

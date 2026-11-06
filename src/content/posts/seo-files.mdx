@@ -1,0 +1,132 @@
+---
+title: 404 페이지와 sitemap, robots, RSS 만들기
+date: 2026-11-07T01:13
+description: 블로그를 검색엔진과 RSS 구독기가 읽을 수 있게 하는 파일들을 Next.js 파일 규칙으로 만들었다. RSS만 route.ts로 만든 이유도 정리한다.
+tags: [Next.js, SEO]
+---
+
+글을 쓰는 것만큼 중요한 게 **찾아올 수 있게 하는 것**이다. 사람이 아니라 검색엔진 로봇과 RSS 구독기를 위한 파일 네 개를 만들었다.
+
+| 파일                   | 주소           | 하는 일                                |
+| ---------------------- | -------------- | -------------------------------------- |
+| `app/not-found.tsx`    | 없는 주소 전부 | 404 화면                               |
+| `app/sitemap.ts`       | `/sitemap.xml` | 사이트의 페이지 목록을 검색엔진에 알림 |
+| `app/robots.ts`        | `/robots.txt`  | 검색엔진 로봇이 둘러봐도 되는 범위     |
+| `app/rss.xml/route.ts` | `/rss.xml`     | RSS 구독기가 새 글을 가져가는 피드     |
+
+모두 Next.js가 **파일 이름으로 정해 둔 규칙**이라, 정해진 위치에 정해진 이름으로 만들기만 하면 된다.
+
+## 1. 404 페이지
+
+글 페이지에서 없는 글이면 `notFound()`를 부르고 있었다. 이 함수를 부르면 Next.js 기본 404 화면이 보이고, 상태 코드도 404로 간다.
+
+`app/not-found.tsx`를 만들면 그 화면을 내 디자인으로 바꿀 수 있다.
+
+```tsx title="src/app/not-found.tsx"
+export const metadata: Metadata = { title: '페이지를 찾을 수 없어요' };
+
+export default function NotFound() {
+  return (
+    <section className="py-24 text-center">
+      <p className="font-mono text-sm text-accent">404</p>
+      <h1>페이지를 찾을 수 없어요</h1>
+      <Link href="/">글 목록으로</Link>
+      <Link href="/tags">태그 보기</Link>
+    </section>
+  );
+}
+```
+
+<Callout title="기본 404는 내 다크 모드를 모른다">
+  Next.js 문서를 보면, 기본 404 화면은 OS 다크 설정만 따르고 `<html>`의 `.dark` 같은 사이트 테마는 읽지 않는다. 직접 만든 `not-found.tsx`는 루트 레이아웃 안에서 그려지니 헤더, 푸터, 다크 모드가 그대로 적용된다.
+</Callout>
+
+## 2. sitemap과 robots
+
+```ts title="src/app/sitemap.ts"
+export default function sitemap(): MetadataRoute.Sitemap {
+  const posts = getPosts().filter((post) => !post.draft);
+  return [
+    { url: site.url, lastModified: posts[0]?.date },
+    { url: `${site.url}/about` },
+    { url: `${site.url}/tags` },
+    ...posts.map((post) => ({ url: `${site.url}${post.url}`, lastModified: post.date })),
+    ...getTags().map(({ tag }) => ({ url: `${site.url}${tagUrl(tag)}` })),
+  ];
+}
+```
+
+```ts title="src/app/robots.ts"
+export default function robots(): MetadataRoute.Robots {
+  return {
+    rules: { userAgent: '*', allow: '/' },
+    sitemap: `${site.url}/sitemap.xml`,
+  };
+}
+```
+
+배열이나 객체만 돌려주면 Next.js가 XML과 텍스트로 바꿔 준다. `MetadataRoute.Sitemap` 타입 덕분에 필드 이름을 틀리면 바로 알 수 있다. 한글 태그 주소는 `tagUrl()`이 인코딩해 준다.
+
+## 3. RSS는 왜 route.ts일까
+
+RSS는 `page.tsx`로 만들 수 없다.
+
+- `page.tsx`는 **항상 HTML 페이지**를 만든다. 루트 레이아웃의 `<html>`, `<body>`, 헤더까지 같이 붙는다.
+- RSS 구독기는 HTML이 아니라 **XML 문서**를 기대한다.
+
+그래서 `route.ts`에서 응답(Response)을 직접 만든다.
+
+```ts title="src/app/rss.xml/route.ts"
+export function GET() {
+  const posts = getPosts().filter((post) => !post.draft);
+  const items = posts
+    .map(
+      (post) => `
+    <item>
+      <title>${escapeXml(post.title)}</title>
+      <link>${site.url}${post.url}</link>
+      <pubDate>${new Date(`${post.date}T00:00:00Z`).toUTCString()}</pubDate>
+    </item>`,
+    )
+    .join('');
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <title>${escapeXml(site.title)}</title>
+  ${items}
+</channel></rss>`;
+
+  return new Response(xml, {
+    headers: { 'Content-Type': 'application/rss+xml; charset=utf-8' },
+  });
+}
+```
+
+- 폴더 이름이 `rss.xml`이라 주소가 `/rss.xml`이 된다.
+- `escapeXml`: 제목에 `&`나 `<`가 있으면 XML이 깨지니 `&amp;`, `&lt;`로 바꾼다.
+- 요청 정보(헤더, 쿠키)를 쓰지 않으니, 이 파일도 **빌드할 때 한 번** 만들어진다. 빌드 결과에 `○ /rss.xml (Static)`으로 나온다.
+
+마지막으로 루트 레이아웃 메타데이터에 피드 위치를 적어 두면, `<head>`에 링크 태그가 들어가 구독기가 피드를 알아서 찾는다.
+
+```ts title="src/app/layout.tsx"
+export const metadata: Metadata = {
+  metadataBase: new URL(site.url),
+  alternates: { types: { 'application/rss+xml': '/rss.xml' } },
+};
+```
+
+## 마무리
+
+- `not-found.tsx`, `sitemap.ts`, `robots.ts`는 정해진 이름으로 만들기만 하면 된다.
+- sitemap, robots는 객체를 돌려주면 Next.js가 형식을 맞춰 준다.
+- HTML이 아닌 응답(XML)은 `page.tsx`가 아니라 `route.ts`로 직접 만든다.
+- 사이트 주소는 `site.url` 한 곳에서 가져와서, 도메인이 바뀌어도 한 줄만 고친다.
+
+## 참고 자료
+
+<LinkCard href="https://nextjs.org/docs/app/api-reference/file-conventions/not-found" />
+<LinkCard href="https://nextjs.org/docs/app/api-reference/file-conventions/metadata/sitemap" />
+<LinkCard href="https://nextjs.org/docs/app/api-reference/file-conventions/metadata/robots" />
+<LinkCard href="https://nextjs.org/docs/app/api-reference/file-conventions/route" />
+<LinkCard href="https://www.sitemaps.org/protocol.html" />
+<LinkCard href="https://www.rssboard.org/rss-specification" />

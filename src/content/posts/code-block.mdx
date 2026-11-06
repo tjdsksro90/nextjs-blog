@@ -1,0 +1,129 @@
+---
+title: 코드 블록 꾸미기, shiki 라이트/다크 두 테마
+date: 2026-11-06T20:46
+description: fumadocs가 기본으로 넣어 주는 shiki 하이라이트를 블로그 다크 모드에 맞추고, 파일 이름 표시와 줄 강조, diff 표시를 붙였다.
+tags: [MDX, fumadocs, CSS]
+---
+
+개발 블로그에서 가장 자주 보이는 건 결국 코드 블록이다. fumadocs-mdx는 **shiki**로 문법 강조를 기본으로 해 주는데, 그대로 두면 블로그의 다크 모드 버튼과 따로 논다. 세 가지를 손봤다.
+
+1. 라이트와 다크 모드에 맞춰 코드 색 바꾸기
+2. 코드 블록 위에 파일 이름 보여 주기
+3. 특정 줄 강조, 바뀐 줄(diff) 표시
+
+## 1. 두 테마를 CSS 변수로 받기
+
+fumadocs의 기본 설정은 shiki에 테마 두 개(`github-light`, `github-dark`)를 주고, 색을 직접 칠하는 대신 **CSS 변수로 둘 다 넣어 준다.**
+
+```html title="빌드 결과 (일부)"
+<span style="--shiki-light:#D73A49;--shiki-dark:#F97583">export</span>
+```
+
+그러니 어떤 변수를 쓸지만 CSS에서 고르면 된다. 블로그는 `<html>`에 `.dark` 클래스를 붙이는 방식이라 이렇게 적었다.
+
+```css title="src/app/globals.css"
+.shiki span {
+  color: var(--shiki-light);
+}
+.dark .shiki span {
+  color: var(--shiki-dark);
+}
+```
+
+<Callout title="왜 media 쿼리가 아니라 클래스일까">
+  `@media (prefers-color-scheme: dark)`로 쓰면 OS 설정만 따라간다. 블로그에는 직접 바꾸는 버튼이 있으니, 버튼이 붙이는
+  `.dark` 클래스를 기준으로 해야 둘이 어긋나지 않는다.
+</Callout>
+
+## 2. 파일 이름 보여 주기
+
+마크다운에서 언어 뒤에 `title`을 붙이면,
+
+````md
+```ts title="src/lib/source.ts"
+
+```
+````
+
+fumadocs가 이 값을 `<pre title="src/lib/source.ts">`로 넘겨준다. 그래서 MDX의 `pre` 태그를 내 컴포넌트로 바꿔치기했다.
+
+```tsx title="src/components/CodeBlock.tsx"
+export function CodeBlock({ title, ...props }: ComponentProps<'pre'>) {
+  return (
+    <figure className="code-block not-prose">
+      {title && <figcaption>{title}</figcaption>}
+      <pre {...props} />
+    </figure>
+  );
+}
+```
+
+```tsx title="src/mdx-components.tsx"
+const components: MDXComponents = {
+  pre: CodeBlock,
+};
+```
+
+- `title`만 꺼내 쓰고, 나머지 속성(`...props`)은 원래 `<pre>`에 그대로 넘긴다. shiki가 붙인 클래스와 스타일을 잃지 않기 위해서다.
+- `not-prose`는 본문의 typography 스타일이 코드 블록 안까지 들어오지 않게 끊어 준다. 코드 블록의 여백과 글자 크기는 직접 정한다.
+
+## 3. 줄 강조와 diff
+
+shiki는 코드 주석으로 줄에 표시를 붙일 수 있다(fumadocs 기본 설정에 포함).
+
+````txt title="글에 이렇게 쓴다"
+```ts
+const total = price * count; // [!code --]
+const total = price * count * (1 - discount); // [!code ++]
+const result = total; // [!code highlight]
+```
+````
+
+결과는 이렇다.
+
+```ts
+const total = price * count; // [!code --]
+const total = price * count * (1 - discount); // [!code ++]
+const result = total; // [!code highlight]
+```
+
+주석은 화면에서 사라지고, 그 줄에 `highlighted`, `diff add`, `diff remove` 클래스가 붙는다. 배경색은 직접 정한다.
+
+```css title="src/app/globals.css"
+.code-block pre > code {
+  display: grid; /* 줄마다 가로를 꽉 채워서, 강조 배경이 끝까지 칠해지게 */
+}
+.code-block .line.highlighted {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+}
+.code-block .line.diff.add {
+  background: color-mix(in oklab, #22c55e 14%, transparent);
+}
+.code-block .line.diff.remove {
+  background: color-mix(in oklab, #ef4444 14%, transparent);
+  opacity: 0.7;
+}
+```
+
+### 주의: 강조 배경이 글자 길이만큼만 칠해진다
+
+배경색만 주고 끝내면, 강조한 줄의 배경이 코드 글자가 있는 곳까지만 칠해지고 오른쪽이 비어 보인다.
+
+- **원인:** 줄(`span.line`)은 인라인 요소라 내용 길이만큼만 폭을 가진다.
+- **해결:** 바깥 `<code>`를 `display: grid`로 바꾸면 각 줄이 한 칸씩 차지하며 가로를 꽉 채운다.
+
+`color-mix`로 블로그 포인트 색(`--accent`)을 12%만 섞어서, 라이트와 다크 모드 모두 은은하게 보이게 했다.
+
+## 마무리
+
+- shiki 두 테마는 CSS 변수(`--shiki-light`, `--shiki-dark`)로 들어오니, 블로그의 `.dark` 클래스 기준으로 골라 쓴다.
+- `pre`를 내 컴포넌트로 바꿔치기하면 `title`로 파일 이름을 보여 줄 수 있다. 나머지 속성은 그대로 넘긴다.
+- `[!code highlight]`, `[!code ++]`, `[!code --]` 주석으로 줄을 표시하고, 배경은 `display: grid`로 끝까지 칠한다.
+
+## 참고 자료
+
+<LinkCard href="https://shiki.style/guide/dual-themes" />
+<LinkCard href="https://shiki.style/packages/transformers" />
+<LinkCard href="https://nextjs.org/docs/app/api-reference/file-conventions/mdx-components" />
+<LinkCard href="https://github.com/tailwindlabs/tailwindcss-typography" />
+<LinkCard href="https://developer.mozilla.org/en-US/docs/Web/CSS/color_value/color-mix" />

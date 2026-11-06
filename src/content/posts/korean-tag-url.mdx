@@ -1,0 +1,91 @@
+---
+title: 한글 태그 주소가 %ED%9A%8C%EA%B3%A0로 들어오는 문제
+date: 2026-11-07T00:49
+description: 태그 페이지를 만들었더니 한글 태그만 글이 0개로 나왔다. params가 인코딩된 채로 들어오는 원인과 encodeURIComponent, decodeURIComponent로 해결한 과정.
+tags: [Next.js, 트러블슈팅]
+---
+
+글에 붙인 태그를 모아 `/tags`(태그 목록)와 `/tags/[tag]`(태그별 글 목록) 페이지를 만들었다. 영어 태그는 잘 되는데, `회고` 태그를 누르니 **글이 하나도 없다며 404**가 떴다.
+
+## 증상
+
+- `/tags/MDX` → 글 목록이 잘 나온다.
+- `/tags/회고` → 404 (태그에 해당하는 글이 없음)
+
+코드는 단순했다.
+
+```tsx title="src/app/tags/[tag]/page.tsx"
+export default async function TagPage({ params }: PageProps<'/tags/[tag]'>) {
+  const { tag } = await params;
+  const posts = getPosts().filter((post) => post.tags.includes(tag));
+  if (posts.length === 0) notFound();
+  // ...
+}
+```
+
+## 원인
+
+`tag`를 찍어 보니 `회고`가 아니라 이렇게 들어오고 있었다.
+
+```
+%ED%9A%8C%EA%B3%A0
+```
+
+브라우저 주소창에는 `회고`로 보여도, 실제로 서버에 가는 주소는 인코딩된 값이다. 그리고 Next.js의 `params`는 **어떤 때는 인코딩된 채로, 어떤 때는 되돌려진 채로 들어왔다.** 글의 태그는 `회고`인데 `%ED%9A%8C%EA%B3%A0`와 비교하니 일치하는 글이 없었던 것이다.
+
+## 해결
+
+### 1. 링크를 만들 때는 인코딩한다
+
+태그 주소를 만드는 곳을 함수 하나로 모았다.
+
+```ts title="src/lib/posts.ts"
+/** 회고 → /tags/%ED%9A%8C%EA%B3%A0 */
+export function tagUrl(tag: string) {
+  return `/tags/${encodeURIComponent(tag)}`;
+}
+```
+
+한글뿐 아니라 `C#`(`#`은 주소에서 다른 뜻), `a/b`(`/`는 경로 구분) 같은 태그도 안전하게 주소에 들어간다. 홈, 글 페이지, 태그 목록, sitemap이 모두 이 함수를 쓴다.
+
+### 2. 받을 때는 항상 되돌린다
+
+```tsx title="src/app/tags/[tag]/page.tsx"
+async function readTag(params: PageProps<'/tags/[tag]'>['params']) {
+  const { tag } = await params;
+  try {
+    return decodeURIComponent(tag);
+  } catch {
+    return tag;
+  }
+}
+```
+
+- 인코딩된 값(`%ED%9A%8C%EA%B3%A0`)이 오면 → `회고`로 되돌린다.
+- 이미 되돌려진 값(`회고`)이 오면 → `%`가 없으니 그대로 `회고`가 나온다.
+
+어느 쪽으로 오든 결과가 같아서, "지금은 어느 쪽으로 왔지?"를 따질 필요가 없다.
+
+<Callout type="warn" title="try/catch가 필요한 이유">
+  `decodeURIComponent('100%')`처럼 `%` 뒤에 올바른 두 글자가 없으면 `URIError`가 난다. 누군가 주소를 잘못 치거나 `%`가
+  들어간 태그가 있으면 페이지 전체가 에러가 된다. 실패하면 받은 값을 그대로 쓰고, 그런 태그가 없으면 자연스럽게 404가
+  나게 했다.
+</Callout>
+
+## 영어 주소로 바꿀까도 고민했다
+
+`/tags/retrospective`처럼 영어 이름(slug)을 따로 두는 방법도 있다. 주소는 깔끔해지지만, 태그마다 영어 이름을 관리해야 한다. 지금은 태그가 몇 개 안 되고, 브라우저 주소창에는 어차피 `회고`로 보인다. 그래서 인코딩으로 가기로 했다.
+
+## 마무리
+
+- 주소에 한글을 넣으면 퍼센트 인코딩(`%ED%9A%8C...`)이 된다.
+- `params`는 인코딩된 채로 올 수도, 되돌려진 채로 올 수도 있다.
+- **보낼 때는 `encodeURIComponent`, 받을 때는 `decodeURIComponent`**. 받는 쪽은 try/catch로 감싼다.
+- 주소 만드는 곳을 `tagUrl()` 하나로 모아 두면, 실수로 인코딩을 빼먹는 곳이 생기지 않는다.
+
+## 참고 자료
+
+<LinkCard href="https://developer.mozilla.org/en-US/docs/Glossary/Percent-encoding" />
+<LinkCard href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/encodeURIComponent" />
+<LinkCard href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/decodeURIComponent" />
+<LinkCard href="https://nextjs.org/docs/app/api-reference/file-conventions/dynamic-routes" />

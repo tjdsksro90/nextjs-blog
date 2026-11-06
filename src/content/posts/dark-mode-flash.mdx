@@ -1,0 +1,103 @@
+---
+title: 다크 모드 새로고침 깜빡임 해결엔 suppressHydrationWarning? beforeInteractive?
+date: 2026-11-07T00:57
+description: 다크 모드를 저장해 두어도 새로고침할 때마다 흰 화면이 번쩍였다. 원인과 head 인라인 스크립트로 해결한 과정, next/script로 바꿨다가 되돌린 이야기까지.
+tags: [Next.js, React, 트러블슈팅]
+---
+
+헤더에 다크 모드 버튼을 달았다. 버튼을 누르면 `<html>`에 `dark` 클래스를 붙였다 뗐다 하고, 고른 값은 `localStorage`에 저장한다.
+
+여기서 흔히 만나는 문제가 있다. 저장된 값을 React 코드(`useEffect` 등)에서 읽어 `dark`를 붙이면, 다크 모드로 둔 채 새로고침할 때마다 **흰 화면이 잠깐 번쩍이고** 어두워진다. 그래서 버튼을 만들기 전에 이것부터 막기로 했다.
+
+## 원인: React는 화면이 그려진 뒤에 실행된다
+
+새로고침할 때 일어나는 순서를 보면 이렇다.
+
+1. 서버가 HTML을 보낸다. 서버는 내 `localStorage`를 모르니 `dark` 클래스가 없다.
+2. 브라우저가 그 HTML을 **화면에 그린다** → 흰 화면
+3. JS를 내려받고 React가 실행된다.
+4. React 코드가 `localStorage`를 읽고 `dark`를 붙인다 → 어두워짐
+
+2번과 4번 사이의 짧은 시간이 깜빡임이다. `useEffect` 안에서 아무리 빨리 붙여도, React가 실행되는 3번 뒤라서 소용없다.
+
+## 해결: 그리기 전에 실행되는 스크립트
+
+브라우저는 `<head>` 안의 일반 `<script>`를 만나면 **실행이 끝날 때까지 화면 그리기를 멈춘다.** 이 성질을 이용해 2번보다 먼저 `dark`를 붙인다.
+
+```ts title="src/components/ThemeToggle.tsx"
+export const themeInitScript = `(function(){try{
+  var t = localStorage.getItem('theme');
+  var d = t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  if (d) document.documentElement.classList.add('dark');
+}catch(e){}})()`;
+```
+
+```tsx title="src/app/layout.tsx"
+<html lang="ko" suppressHydrationWarning>
+  <head>
+    <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+  </head>
+  <body>...</body>
+</html>
+```
+
+- 저장된 값이 있으면 그 값, 없으면 OS 설정(`prefers-color-scheme`)을 따른다.
+- `try/catch`: 브라우저 설정에 따라 `localStorage` 접근이 막혀 있으면 에러가 나는데, 그래도 페이지는 떠야 한다.
+- 아주 짧은 코드라 그리기를 멈추는 시간도 거의 없다.
+
+### suppressHydrationWarning
+
+이제 서버가 보낸 `<html class="...">`와, 스크립트가 `dark`를 붙인 브라우저의 `<html>`이 다르다. React는 화면을 넘겨받을 때(하이드레이션) 둘을 비교해서 다르면 경고를 낸다. 일부러 다르게 만든 것이니 `<html>`에 `suppressHydrationWarning`을 붙여 경고를 끈다.
+
+이 옵션은 **그 태그 자신의 속성 차이만** 무시한다. 안쪽 컴포넌트에서 생기는 진짜 불일치는 그대로 잡아 주니 다른 버그를 숨기지 않는다.
+
+## 버튼은 상태를 따로 갖지 않는다
+
+버튼이 해 아이콘을 보여 줄지 달 아이콘을 보여 줄지 알려면 지금 테마를 알아야 한다. `useState`에 복사해 둘 수도 있지만, 그러면 `<html>` 클래스와 state 두 곳에 같은 정보가 생긴다. 대신 `<html>`의 클래스를 **직접 구독**했다.
+
+```tsx title="src/components/ThemeToggle.tsx"
+function subscribe(onChange: () => void) {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+  return () => observer.disconnect();
+}
+const getSnapshot = () => document.documentElement.classList.contains('dark');
+const getServerSnapshot = () => null; // 서버는 모른다
+
+export function ThemeToggle() {
+  const dark = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  // dark === null 이면(서버에서 그린 첫 화면) 아이콘을 비워 둔다
+}
+```
+
+`useSyncExternalStore`는 React 바깥에 있는 값(여기서는 DOM 클래스)을 안전하게 읽는 훅이다. 서버에서는 `null`을 줘서 아이콘을 비워 두고, 브라우저에서 진짜 값을 읽은 뒤 아이콘을 그린다. 덕분에 해 아이콘에서 달 아이콘으로 바뀌며 깜빡이는 일도 없다.
+
+## next/script로 바꿨다가 되돌린 이야기
+
+나중에 404 페이지를 만들었을 때, 개발 모드에서 이런 경고가 떴다.
+
+```
+Encountered a script tag while rendering React component.
+```
+
+404처럼 React가 화면을 브라우저에서 다시 그릴 때, 컴포넌트 안의 `<script>`는 실행되지 않는다는 경고다. Next.js 공식 방법인 `next/script`의 `strategy="beforeInteractive"`로 바꿔 봤다.
+
+결과는 더 나빴다. `beforeInteractive`는 스크립트를 일단 목록에 넣어 두었다가 Next.js가 준비되면 실행하는 방식이라, **그리기 전에 실행되지 않았다.** 깜빡임이 다시 생겼다.
+
+그래서 원래 `<script>`로 되돌렸다. 그 경고는 운영 빌드에서는 뜨지 않는 것까지 확인했다. 이미 첫 로드 때 실행되어 `dark`가 붙어 있으니 동작에도 문제가 없다.
+
+## 마무리
+
+- 깜빡임의 원인은 **React가 화면이 그려진 뒤에 실행되기 때문**이다.
+- `<head>`의 인라인 `<script>`는 그리기 전에 실행되므로, 여기서 테마 클래스를 붙인다.
+- 일부러 서버와 다르게 만든 `<html>`에는 `suppressHydrationWarning`을 붙인다.
+- 테마 상태는 `<html>` 클래스 한 곳에만 두고, 버튼은 `useSyncExternalStore`로 구독한다.
+- `beforeInteractive`는 "그리기 전"이 아니라 "Next.js 코드보다 먼저"라서 이 용도에는 맞지 않았다.
+
+## 참고 자료
+
+<LinkCard href="https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-color-scheme" />
+<LinkCard href="https://developer.mozilla.org/en-US/docs/Web/API/MutationObserver" />
+<LinkCard href="https://react.dev/reference/react/useSyncExternalStore" />
+<LinkCard href="https://react.dev/reference/react-dom/client/hydrateRoot" />
+<LinkCard href="https://nextjs.org/docs/app/api-reference/components/script" />
