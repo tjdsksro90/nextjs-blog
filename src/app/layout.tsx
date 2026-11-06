@@ -36,7 +36,9 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body className="min-h-full flex flex-col font-sans">
+      {/* 브라우저 확장 프로그램(LocatorJS 등)이 body에 data-* 속성을 끼워 넣어도 하이드레이션 경고를 내지 않는다.
+          suppressHydrationWarning은 이 태그의 속성에만 적용되고, 안쪽 자식들의 불일치는 그대로 잡아낸다. */}
+      <body suppressHydrationWarning className="min-h-full flex flex-col font-sans">
         <SiteHeader />
         <main className="mx-auto w-full max-w-3xl flex-1 px-5">{children}</main>
         <SiteFooter />
