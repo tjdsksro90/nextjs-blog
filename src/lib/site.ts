@@ -2,7 +2,7 @@
 export const site = {
   title: 'dev.log',
   description: '프론트엔드 개발하며 배우고 만든 것들을 기록합니다.',
-  author: 'tjdsksro90',
+  author: '윤호준',
   url: 'https://nextjs-blog-mu-two-37.vercel.app',
   links: [
     { label: 'GitHub', href: 'https://github.com/tjdsksro90' },
