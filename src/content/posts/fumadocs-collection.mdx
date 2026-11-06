@@ -1,0 +1,140 @@
+---
+title: fumadocs로 글 컬렉션 만들고 홈에 글 목록 띄우기
+date: 2026-11-06T20:32
+description: 글 폴더를 컬렉션으로 정의하고, frontmatter를 zod로 검사하고, 홈에 최신순 글 목록을 띄웠다. 중간에 만난 날짜 타입 문제와 해결 과정까지 정리한다.
+tags: [Next.js, MDX, fumadocs]
+---
+
+fumadocs-mdx로 바꾸기로 했으니([이전 글](/posts/fumadocs-mdx)), 이제 실제로 글을 모아서 홈에 보여 줄 차례다. 목표는 세 가지였다.
+
+1. `src/content/posts` 폴더의 `.mdx` 파일이 곧 글 하나가 되게 하기
+2. frontmatter가 틀리면 빌드가 실패하게 하기
+3. 홈에 최신순으로 글 목록 띄우기 (초안은 개발 서버에서만)
+
+## 1. 컬렉션 정의하기
+
+컬렉션은 "이 폴더의 파일들은 이런 규칙을 가진 글이다"라고 알려 주는 설정이다.
+
+```ts title="src/lib/source.ts"
+import { loader } from 'fumadocs-core/source';
+import { pageSchema } from 'fumadocs-core/source/schema';
+import { defineCollections } from 'fumadocs-mdx/macro';
+import { z } from 'zod';
+
+export const postSchema = pageSchema.extend({
+  date: z.iso.date().or(z.date()),
+  tags: z.array(z.string()).default([]),
+  draft: z.boolean().default(false),
+});
+
+export const posts = defineCollections({
+  type: 'doc',
+  dir: 'src/content/posts',
+  schema: postSchema,
+});
+
+// 파일 이름이 주소가 된다: hello-world.mdx → /posts/hello-world
+export const postSource = loader({
+  baseUrl: '/posts',
+  source: posts.toFumadocsSource(),
+});
+```
+
+- `pageSchema`에는 `title`(필수)과 `description`(선택)이 이미 들어 있어서, 블로그에 필요한 `date`, `tags`, `draft`만 덧붙였다.
+- `.default([])`, `.default(false)` 덕분에 태그나 초안 여부를 안 적어도 된다.
+- `loader`는 컬렉션을 "주소가 붙은 페이지 목록"으로 바꿔 준다. `postSource.getPages()`로 전체 글을, `getPage(['hello-world'])`로 글 하나를 꺼낼 수 있다.
+
+## 2. 스키마가 정말 막아 주는지 확인하기
+
+일부러 `date`를 빼고 `tags`를 문자열로 쓴 글을 하나 만들어 빌드해 봤다.
+
+```yaml title="틀린 frontmatter"
+---
+title: 테스트
+tags: React
+---
+```
+
+빌드가 실패하면서 어느 파일의 어느 값이 틀렸는지 알려 줬다. 이제 frontmatter 실수가 배포까지 가는 일은 없다.
+
+## 3. 만난 문제: 날짜가 Date로 들어온다
+
+날짜는 문자열이니까 `date: z.string()`이면 될 것 같지만, 이렇게 적으면 `date: 2026-11-05`처럼 쓴 글에서 빌드가 실패한다.
+
+### 원인
+
+YAML은 `2026-11-05`처럼 따옴표 없는 날짜를 **문자열이 아니라 Date 객체**로 읽는다. 반대로 `'2026-11-05'`처럼 따옴표로 감싸면 문자열이 된다. 글마다 쓰는 방식이 달라도 되게 하려면 둘 다 받아야 했다.
+
+### 해결
+
+스키마에서 둘 다 허용하고,
+
+```ts
+date: z.iso.date().or(z.date()),
+```
+
+목록을 만들 때 한 가지 모양(`YYYY-MM-DD` 문자열)으로 맞췄다.
+
+```ts title="src/lib/posts.ts"
+function toDateString(date: string | Date) {
+  return typeof date === 'string' ? date : date.toISOString().slice(0, 10);
+}
+```
+
+<Callout type="warn" title="날짜를 화면에 보여 줄 때도 주의">
+  `new Date('2026-11-05')`는 UTC 자정이라, 한국 시간으로 바꾸면 그대로지만 서버 시간대에 따라 하루가 밀려 보일 수 있다.
+  그래서 `Intl.DateTimeFormat`에 `timeZone: 'UTC'`를 넣어 날짜가 바뀌지 않게 했다.
+</Callout>
+
+## 4. 글 목록 함수 만들기
+
+화면에서 fumadocs의 데이터 구조를 직접 다루지 않게, 블로그에 필요한 모양으로 바꿔 주는 함수를 하나 두었다.
+
+```ts title="src/lib/posts.ts"
+const showDrafts = process.env.NODE_ENV === 'development';
+
+export function getPosts(): Post[] {
+  return postSource
+    .getPages()
+    .map((page) => ({
+      slug: page.slugs.join('/'),
+      url: page.url,
+      title: page.data.title,
+      description: page.data.description ?? '',
+      date: toDateString(page.data.date),
+      tags: page.data.tags,
+      draft: page.data.draft,
+    }))
+    .filter((post) => showDrafts || !post.draft) // 초안은 개발 서버에서만
+    .sort((a, b) => (a.date < b.date ? 1 : -1)); // 최신순
+}
+```
+
+`YYYY-MM-DD` 문자열은 글자 순서와 날짜 순서가 같아서 문자열 비교만으로 정렬할 수 있다. 이렇게 한 곳에 모아 두니, 나중에 태그 페이지, RSS, sitemap을 만들 때도 전부 이 함수 하나를 썼다.
+
+홈 페이지는 이 함수를 불러서 그리기만 한다.
+
+```tsx title="src/app/page.tsx"
+export default function Home() {
+  return <PostList posts={getPosts()} />;
+}
+```
+
+## 5. 자잘하게 손본 것
+
+- fumadocs-mdx는 빌드할 때 `.source` 폴더에 파일을 만든다. 직접 고치는 파일이 아니라서 `.gitignore`와 ESLint 검사 대상에서 뺐다.
+- 초안(`draft: true`)은 개발 서버에서만 보이고, 목록에 `[초안]` 표시를 붙여 구분했다.
+
+## 마무리
+
+- **컬렉션**으로 글 폴더를 정의하면 글 목록은 fumadocs가 모아 준다.
+- **zod 스키마**로 frontmatter를 검사하면 틀린 글은 빌드 단계에서 걸러진다.
+- YAML 날짜는 따옴표 유무에 따라 Date와 문자열로 갈리니 **둘 다 받고 한 모양으로 맞춘다**.
+- 화면은 fumadocs 데이터를 직접 쓰지 않고 `getPosts()` 같은 함수 하나를 거치게 하면, 다른 페이지에서도 재사용하기 쉽다.
+
+## 참고 자료
+
+<LinkCard href="https://fumadocs.dev/docs/mdx/collections" />
+<LinkCard href="https://fumadocs.dev/docs/mdx/macro" />
+<LinkCard href="https://fumadocs.dev/docs/headless/source-api" />
+<LinkCard href="https://zod.dev/api" />
