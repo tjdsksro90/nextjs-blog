@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { site } from '@/lib/site';
+import { ThemeToggle } from './ThemeToggle';
 
 const nav = [
   { href: '/', label: 'Posts' },
@@ -24,6 +25,7 @@ export function SiteHeader() {
               {item.label}
             </Link>
           ))}
+          <ThemeToggle />
         </nav>
       </div>
     </header>
