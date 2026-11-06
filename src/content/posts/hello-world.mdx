@@ -32,5 +32,23 @@ draft: true             # 초안: 개발 서버에서만 보임
 | 인라인 코드 | `const a = 1` |
 
 - [x] 표, 체크리스트 같은 GitHub 문법
-- [ ] 코드 블록 문법 강조
+- [x] 코드 블록 문법 강조
 - [ ] 댓글
+
+### 코드 블록
+
+언어 뒤에 `title="..."`을 붙이면 파일 이름이 보이고, 줄 끝에 `// [!code highlight]`를 달면 그 줄이 강조된다.
+
+```tsx title="Hello.tsx"
+export function Hello({ name }: { name: string }) {
+  const greeting = `안녕하세요, ${name}님`; // [!code highlight]
+  return <p>{greeting}</p>;
+}
+```
+
+바뀐 줄은 `// [!code ++]`, 지운 줄은 `// [!code --]`로 표시한다.
+
+```ts
+const total = price * count; // [!code --]
+const total = price * count * (1 - discount); // [!code ++]
+```
