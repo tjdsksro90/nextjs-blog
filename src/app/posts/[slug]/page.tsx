@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { TagChip } from '@/components/PostList';
 import { TableOfContents } from '@/components/TableOfContents';
 import { formatDate, getPosts } from '@/lib/posts';
 import { postSource } from '@/lib/source';
@@ -53,11 +54,9 @@ export default async function PostPage({ params }: PageProps<'/posts/[slug]'>) {
           <h1 className="mt-3 text-3xl font-bold leading-tight tracking-tight sm:text-4xl">{data.title}</h1>
           {data.description && <p className="mt-4 text-lg leading-relaxed text-muted">{data.description}</p>}
           {data.tags.length > 0 && (
-            <div className="mt-5 flex flex-wrap gap-2 text-xs text-muted">
+            <div className="mt-5 flex flex-wrap gap-2">
               {data.tags.map((tag) => (
-                <span key={tag} className="rounded-md border border-line px-2 py-0.5">
-                  #{tag}
-                </span>
+                <TagChip key={tag} tag={tag} />
               ))}
             </div>
           )}
