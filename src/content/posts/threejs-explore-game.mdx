@@ -1,0 +1,185 @@
+---
+title: 클릭하면 날아가는 카메라와 탐험 기록, three.js 은하를 게임으로
+date: 2026-11-07T03:40
+description: 행성을 클릭하면 카메라가 날아가 공전하는 행성을 따라가고, 탐험한 행성을 기록하게 했다. 레이캐스팅 클릭, OrbitControls와 함께 쓰는 카메라 이동, localStorage 기록, 휴대폰 화면 처리까지.
+tags: [three.js, React]
+---
+
+[지난 글](/posts/threejs-tag-galaxy)에서 블로그 태그로 은하를 그렸다. 마지막으로 **탐험 게임**으로 만든다.
+
+- 처음에는 행성 이름이 `? 미탐험`으로 가려져 있다.
+- 행성을 클릭하면 카메라가 날아가고, 오른쪽에 그 태그의 글 목록이 뜬다. 글을 누르면 그 글로 간다.
+- 같은 행성을 다시 누르거나, "은하 전체 보기"를 누르거나, `Esc`를 누르면 돌아온다.
+- 탐험한 행성 수가 왼쪽 위에 쌓이고, 다음에 와도 남아 있다.
+
+완성한 게임이다. 행성을 눌러 보자. [Explore 페이지](/explore)와 탐험 기록을 같이 쓴다.
+
+<ExploreDemo />
+
+## 1. 3D 물체 클릭하기: 레이캐스팅
+
+화면의 한 점(마우스)을 클릭했을 때 3D 장면의 어떤 물체를 눌렀는지 알려면, 카메라에서 그 점 방향으로 **광선을 쏴서 처음 맞는 물체**를 찾아야 한다. 이걸 레이캐스팅(raycasting)이라고 한다.
+
+React Three Fiber는 이걸 대신 해 준다. Mesh에 `onClick`을 달기만 하면 된다.
+
+```tsx title="src/components/explore/Planet.tsx"
+function handleClick(e: ThreeEvent<MouseEvent>) {
+  e.stopPropagation(); // 뒤에 겹친 다른 행성까지 클릭되지 않게
+  if (e.delta > 4) return; // 드래그로 돌린 거면 클릭으로 치지 않는다
+  onSelect(data.tag);
+}
+
+<mesh
+  onClick={handleClick}
+  onPointerOver={(e) => {
+    e.stopPropagation();
+    onHover(data.tag);
+  }}
+  onPointerOut={() => onHover(null)}
+>
+```
+
+- **`e.stopPropagation()`**: 광선은 앞의 행성을 뚫고 뒤의 행성까지 맞는다. 가장 앞의 물체에서 멈추게 한다.
+- **`e.delta`**: 누르고 뗄 때까지 마우스가 움직인 거리(px)다. 그대로 두면 장면을 드래그로 돌리고 손을 뗀 위치에 행성이 있을 때 클릭으로 처리된다. 그래서 4px 넘게 움직였으면 무시했다.
+- 마우스를 올리면 `emissive`로 행성을 살짝 밝히고, 커서를 손가락 모양으로 바꾼다.
+
+## 2. 카메라 날아가기
+
+마우스 드래그로 돌리기는 `OrbitControls`가 하고 있다. 여기에 "행성으로 날아가기"를 더하는 게 이번 글에서 가장 고민한 부분이다.
+
+`OrbitControls`는 **target(바라보는 점)**을 중심으로 카메라를 돌린다. 그래서 카메라를 직접 옮기기보다, target을 옮기고 카메라가 따라오게 했다.
+
+```tsx title="src/components/explore/CameraRig.tsx"
+useFrame(({ camera }, delta) => {
+  const c = controls.current;
+  const planet = focus ? centers.current.get(focus) : undefined;
+  if (planet) planet.getWorldPosition(goal);
+  else goal.set(0, 0, 0); // 은하 전체: 항성을 본다
+
+  const t = 1 - Math.exp(-SPEED * delta);
+
+  before.copy(c.target);
+  c.target.lerp(goal, t); // 1. target을 행성 쪽으로
+  camera.position.add(move.subVectors(c.target, before)); // 2. 카메라도 같은 만큼
+
+  if (flying.current) {
+    // 3. 날아가는 동안에만 거리를 목표 거리로
+    const want = planet ? 3 + planetSize * 3.5 : 30;
+    offset.subVectors(camera.position, c.target);
+    const distance = offset.length() + (want - offset.length()) * t;
+    camera.position.copy(c.target).add(offset.setLength(distance));
+    if (/* 거의 도착 */) flying.current = false;
+  }
+});
+```
+
+### 1. target 옮기기: lerp
+
+`lerp(goal, t)`는 지금 위치에서 goal까지 거리의 `t`만큼 다가간다. 매 프레임 "남은 거리의 일정 비율"씩 가니까 **처음엔 빠르고 도착할수록 느려진다.** 부드럽게 멈추는 느낌이 여기서 나온다.
+
+`t`를 그냥 `0.08`처럼 고정하면 120Hz 모니터에서는 1초에 120번 다가가서 두 배 빨라진다. `1 - Math.exp(-SPEED * delta)`로 프레임 사이 시간(`delta`)을 반영하면 주사율과 상관없이 같은 속도가 된다.
+
+### 2. 카메라도 같이 옮기기: 공전하는 행성 따라가기
+
+target만 옮기면 카메라는 제자리에서 고개만 돌린다. target이 움직인 만큼(`target - before`) 카메라도 같이 옮겨야 **날아가는** 느낌이 난다.
+
+이 계산은 도착한 뒤에도 매 프레임 계속된다. 행성은 계속 공전하니까, 카메라가 행성을 **따라다닌다.** 그 상태에서도 드래그로 행성 주위를 돌려 볼 수 있다. 회전은 여전히 `OrbitControls`가 하기 때문이다.
+
+### 3. 거리 맞추기는 날아가는 동안만
+
+거리를 매 프레임 계속 맞추면 사용자가 휠로 확대해도 바로 되돌아간다. 그래서 행성을 새로 고를 때 `flying`을 켜고, 목표 거리에 거의 도착하면 끈다.
+
+목표 거리는 **행성 크기에 비례**한다. 처음엔 고정 거리(5)였는데, 고리가 있는 큰 행성은 화면을 꽉 채워서 형태가 안 보였다. 행성 group의 `userData`에 고리까지 포함한 크기를 넣어 두고 읽었다.
+
+```tsx
+<group position={[distance, 0, 0]} userData={{ size: hasRing ? size * 1.8 : size }}>
+```
+
+<Callout title="매 프레임 쓰는 벡터는 밖에서 한 번만">
+  `goal`, `before`, `move`, `offset`은 컴포넌트 밖에서 `new Vector3()`로 한 번만 만들어 재사용한다. 1초에 60번 새로 만들면 버려지는 객체가 쌓여서 가비지 컬렉션이 자주 돈다.
+</Callout>
+
+## 3. 돌아가는 방법 세 가지
+
+```tsx title="src/components/explore/GalaxyCanvas.tsx"
+function select(tag: string) {
+  // 보고 있는 행성을 한 번 더 누르면 은하 전체로
+  if (tag === focus) {
+    backToGalaxy();
+    return;
+  }
+  setFocus(tag);
+  // ...
+}
+```
+
+- 같은 행성을 **다시 클릭**
+- 패널의 **은하 전체 보기** 버튼
+- **`Esc`** 키 (`keydown` 이벤트)
+
+돌아가는 건 `focus`를 `null`로 바꾸기만 하면 된다. 그러면 CameraRig가 goal을 항성(원점), 거리를 30으로 잡고 다시 날아간다. 같은 코드로 오고 간다.
+
+## 4. 탐험 기록: localStorage
+
+탐험한 행성은 새로고침해도 남도록 `localStorage`에 저장했다. 읽는 방법은 다크 모드 버튼 때와 같은 `useSyncExternalStore`다.
+
+```ts title="src/components/explore/visited.ts"
+export function useVisited() {
+  const raw = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  return useMemo(() => new Set(parse(raw)), [raw]);
+}
+
+export function markVisited(tag: string) {
+  const visited = new Set(parse(getSnapshot()));
+  if (visited.has(tag)) return false;
+  visited.add(tag);
+  localStorage.setItem(KEY, JSON.stringify([...visited]));
+  window.dispatchEvent(new Event(EVENT)); // 같은 탭의 useVisited에게 알린다
+  return true; // 처음 탐험한 행성이면 true
+}
+```
+
+- **`getSnapshot`은 문자열을 돌려준다.** Set을 돌려주면 매번 새 객체라 React가 "값이 바뀌었다"고 보고 끝없이 다시 그린다. 문자열은 내용이 같으면 같은 값이다.
+- `storage` 이벤트는 **다른 탭**에서 바뀐 것만 알려 준다. 같은 탭에서 바꾼 건 직접 이벤트를 쏴서 알렸다.
+- 서버에서는 기록을 모르니 `getServerSnapshot`은 빈 배열(`'[]'`)이다.
+- 탐험 수는 기록 전체가 아니라 **지금 있는 태그 중 탐험한 것**만 센다. 태그가 사라져도 숫자가 맞는다.
+
+## 5. 휴대폰 화면: 패널이 행성을 가렸다
+
+넓은 화면에서는 패널이 오른쪽 위에 뜬다. 휴대폰에서는 폭이 좁아서 패널을 **아래쪽**에 띄웠다. 그런데 카메라는 행성을 화면 **가운데**에 두니, 아래 패널이 행성을 반쯤 가렸다.
+
+카메라 위치를 바꾸는 대신, **화면에 그리는 영역**을 옮겼다.
+
+```tsx title="src/components/explore/CameraRig.tsx"
+const wantShift = planet && size.width < 640 ? size.height * 0.22 : 0;
+shift.current += (wantShift - shift.current) * t;
+if (shift.current > 0.5) camera.setViewOffset(size.width, size.height, 0, shift.current, size.width, size.height);
+else if (camera.view?.enabled) camera.clearViewOffset();
+```
+
+`setViewOffset`은 원래 큰 화면을 여러 모니터에 나눠 그릴 때 쓰는 기능이다. "전체 화면 중 이 부분만 그려라"고 알려 준다. 그리는 영역을 아래로 22% 옮기면 장면이 위로 올라가 보여서, 행성이 패널 위쪽에 보인다.
+
+카메라 투영 자체를 바꾸는 방식이라 **클릭 판정과 이름표 위치(`project`)도 같이 맞춰진다.** 따로 계산을 고칠 필요가 없었다.
+
+## 6. 알게 된 것: 안 보이는 탭에서는 3D가 멈춘다
+
+테스트하다 캔버스가 빈 채로 멈춰 있어서 한참 헤맸다. 원인은 코드가 아니라 브라우저였다. 탭이 백그라운드에 있으면 브라우저는 `requestAnimationFrame`을 멈춘다. three.js의 그리기 루프도 이걸로 돌아서, 탭이 보이는 순간 다시 그려졌다.
+
+배터리와 성능을 위한 브라우저 동작이라 막을 필요는 없다. 다만 "화면이 안 그려진다"는 버그 제보를 받으면 먼저 의심해 볼 만하다.
+
+## 마무리
+
+- 3D 물체 클릭은 R3F가 레이캐스팅으로 처리한다. `stopPropagation`으로 앞의 물체에서 멈추고, `e.delta`로 드래그와 클릭을 구분한다.
+- `OrbitControls`와 함께 카메라를 옮길 때는 **target을 옮기고 카메라를 같은 만큼 따라 옮긴다.** 공전하는 행성도 이걸로 따라간다.
+- 부드러운 이동은 `lerp`와 `1 - exp(-속도 × delta)`. 주사율과 상관없이 같은 속도가 된다.
+- `useSyncExternalStore`의 스냅샷은 문자열처럼 비교 가능한 값으로 돌려준다.
+- 화면 일부를 패널이 가리면 `setViewOffset`으로 그리는 영역을 옮긴다. 클릭 판정도 같이 맞춰진다.
+
+행성 하나에서 시작한 Explore 페이지가 이걸로 완성됐다. 글을 새로 쓰면 은하도 자동으로 자란다.
+
+## 참고 자료
+
+<LinkCard href="https://r3f.docs.pmnd.rs/getting-started/introduction" />
+<LinkCard href="https://drei.docs.pmnd.rs/" />
+<LinkCard href="https://threejs.org/docs/" />
+<LinkCard href="https://react.dev/reference/react/useSyncExternalStore" />

@@ -18,12 +18,19 @@ import { markVisited, useVisited } from './visited';
 const isDev = process.env.NODE_ENV === 'development';
 
 const HINT = '행성을 클릭해서 날아가 보세요 · 드래그로 회전';
+const FOCUS_HINT = ' · 행성을 다시 누르면 은하 전체로';
+
+type GalaxyCanvasProps = {
+  galaxy: GalaxyTag[];
+  game?: boolean; // false면 보기 전용: 클릭, 탐험 수, 패널 없이 이름표를 다 보여 준다 (블로그 글 데모용)
+  showControls?: boolean; // false면 개발 서버에서도 Leva 패널을 숨긴다
+};
 
 /**
  * 3D 장면 전체와 그 위에 겹친 게임 화면(탐험 수, 오른쪽 패널, 안내 문구).
  * WebGL은 브라우저에만 있으니 클라이언트 컴포넌트.
  */
-export function GalaxyCanvas({ galaxy }: { galaxy: GalaxyTag[] }) {
+export function GalaxyCanvas({ galaxy, game = true, showControls = true }: GalaxyCanvasProps) {
   // useControls: 슬라이더 패널. 마음에 드는 값을 찾으면 value를 그 값으로 바꿔 적어 두면 된다
   const light = useControls('Light', {
     ambient: { value: 0.35, min: 0, max: 2, step: 0.05 },
@@ -56,10 +63,16 @@ export function GalaxyCanvas({ galaxy }: { galaxy: GalaxyTag[] }) {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
 
   function select(tag: string) {
+    if (!game) return; // 보기 전용
+    // 보고 있는 행성을 한 번 더 누르면 은하 전체로 돌아간다
+    if (tag === focus) {
+      backToGalaxy();
+      return;
+    }
     setFocus(tag);
     const first = markVisited(tag);
     const done = first && exploredCount + 1 === galaxy.length;
-    setHint(done ? '모든 행성을 탐험했어요!' : first ? '+1 새 행성 발견!' : '이미 탐험한 행성');
+    setHint((done ? '모든 행성을 탐험했어요!' : first ? '+1 새 행성 발견!' : '이미 탐험한 행성') + FOCUS_HINT);
   }
 
   function backToGalaxy() {
@@ -102,7 +115,7 @@ export function GalaxyCanvas({ galaxy }: { galaxy: GalaxyTag[] }) {
             centers={centers}
             hovered={hovered === data.tag}
             onSelect={select}
-            onHover={(tag) => setHovered((current) => (tag === null && current !== data.tag ? current : tag))}
+            onHover={(tag) => game && setHovered((current) => (tag === null && current !== data.tag ? current : tag))}
           />
         ))}
         <PlanetLabelsUpdater anchors={anchors} labels={labels} />
@@ -121,7 +134,7 @@ export function GalaxyCanvas({ galaxy }: { galaxy: GalaxyTag[] }) {
       {settings.showLabels && (
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
           {galaxy.map(({ tag }) => {
-            const seen = visited.has(tag);
+            const seen = !game || visited.has(tag); // 보기 전용이면 다 보여 준다
             return (
               <span
                 key={tag}
@@ -138,62 +151,66 @@ export function GalaxyCanvas({ galaxy }: { galaxy: GalaxyTag[] }) {
         </div>
       )}
 
-      {/* 왼쪽 위: 탐험한 행성 수 */}
-      <div className="pointer-events-none absolute top-3 left-4 font-mono text-xs leading-relaxed text-[#9fe1cb]">
-        <p>
-          EXPLORED {exploredCount} / {galaxy.length}
-        </p>
-        <div className="mt-1 h-1.5 w-36 overflow-hidden rounded-full bg-[#1c2238]">
-          <div
-            className="h-full bg-[#5dcaa5] transition-[width] duration-500"
-            style={{ width: `${galaxy.length ? (exploredCount / galaxy.length) * 100 : 0}%` }}
-          />
-        </div>
-      </div>
+      {game && (
+        <>
+          {/* 왼쪽 위: 탐험한 행성 수 */}
+          <div className="pointer-events-none absolute top-3 left-4 font-mono text-xs leading-relaxed text-[#9fe1cb]">
+            <p>
+              EXPLORED {exploredCount} / {galaxy.length}
+            </p>
+            <div className="mt-1 h-1.5 w-36 overflow-hidden rounded-full bg-[#1c2238]">
+              <div
+                className="h-full bg-[#5dcaa5] transition-[width] duration-500"
+                style={{ width: `${galaxy.length ? (exploredCount / galaxy.length) * 100 : 0}%` }}
+              />
+            </div>
+          </div>
 
-      {/* 오른쪽: 행성을 골랐을 때만 나타나는 패널. 좁은 화면(휴대폰)에서는 행성을 가리지 않게 아래쪽에 */}
-      <aside
-        aria-hidden={!focused}
-        className={`absolute inset-x-3 bottom-3 rounded-lg sm:inset-x-auto sm:top-3 sm:right-3 sm:bottom-auto sm:w-56 border border-[#2c3458] bg-[#0d1020]/90 p-3 font-mono text-xs text-[#e6e8f0] transition-all duration-300 ${
-          focused ? 'translate-x-0 opacity-100' : 'pointer-events-none translate-x-3 opacity-0'
-        }`}
-      >
-        {focused && (
-          <>
-            <p className="text-[#fac775]">PLANET #{focused.tag}</p>
-            <p className="mt-1 text-[#9aa0c0]">위성 {focused.posts.length}개 · 글 {focused.posts.length}편</p>
-            <ul className="mt-3 max-h-28 space-y-1.5 overflow-y-auto sm:max-h-48">
-              {focused.posts.map((post) => (
-                <li key={post.url}>
-                  <Link href={post.url} className="block leading-snug text-[#c9cbd6] hover:text-[#fac775]">
-                    · {post.title}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-            <button
-              type="button"
-              onClick={backToGalaxy}
-              className="mt-3 w-full rounded-md bg-[#fac775] py-1.5 text-[#070814] transition-opacity hover:opacity-85"
-            >
-              은하 전체 보기
-            </button>
-          </>
-        )}
-      </aside>
+          {/* 오른쪽: 행성을 골랐을 때만 나타나는 패널. 좁은 화면(휴대폰)에서는 행성을 가리지 않게 아래쪽에 */}
+          <aside
+            aria-hidden={!focused}
+            className={`absolute inset-x-3 bottom-3 rounded-lg sm:inset-x-auto sm:top-3 sm:right-3 sm:bottom-auto sm:w-56 border border-[#2c3458] bg-[#0d1020]/90 p-3 font-mono text-xs text-[#e6e8f0] transition-all duration-300 ${
+              focused ? 'translate-x-0 opacity-100' : 'pointer-events-none translate-x-3 opacity-0'
+            }`}
+          >
+            {focused && (
+              <>
+                <p className="text-[#fac775]">PLANET #{focused.tag}</p>
+                <p className="mt-1 text-[#9aa0c0]">위성 {focused.posts.length}개 · 글 {focused.posts.length}편</p>
+                <ul className="mt-3 max-h-28 space-y-1.5 overflow-y-auto sm:max-h-48">
+                  {focused.posts.map((post) => (
+                    <li key={post.url}>
+                      <Link href={post.url} className="block leading-snug text-[#c9cbd6] hover:text-[#fac775]">
+                        · {post.title}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  type="button"
+                  onClick={backToGalaxy}
+                  className="mt-3 w-full rounded-md bg-[#fac775] py-1.5 text-[#070814] transition-opacity hover:opacity-85"
+                >
+                  은하 전체 보기
+                </button>
+              </>
+            )}
+          </aside>
 
-      {/* 아래 가운데: 안내 문구. 휴대폰에서 패널이 아래에 열려 있으면 위쪽(탐험 수 아래)으로 */}
-      <p
-        className={`pointer-events-none absolute inset-x-0 bottom-3 text-center font-mono text-xs text-[#fac775] ${
-          focused ? 'max-sm:top-14 max-sm:bottom-auto' : ''
-        }`}
-      >
-        {hint}
-      </p>
+          {/* 아래 가운데: 안내 문구. 휴대폰에서 패널이 아래에 열려 있으면 위쪽(탐험 수 아래)으로 */}
+          <p
+            className={`pointer-events-none absolute inset-x-0 bottom-3 text-center font-mono text-xs text-[#fac775] ${
+              focused ? 'max-sm:top-14 max-sm:bottom-auto' : ''
+            }`}
+          >
+            {hint}
+          </p>
+        </>
+      )}
 
       {/* 슬라이더 패널(개발 서버에서만). 오른쪽 위는 행성 패널 자리라 오른쪽 아래로. 휴대폰 화면에서는 패널과 겹쳐서 숨긴다 */}
       <div className="absolute right-3 bottom-10 w-64 max-sm:hidden">
-        <Leva hidden={!isDev} fill collapsed titleBar={{ title: 'Controls' }} />
+        <Leva hidden={!isDev || !showControls} fill collapsed titleBar={{ title: 'Controls' }} />
       </div>
     </div>
   );

@@ -1,8 +1,10 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { ExploreDemo, GalaxyDemo } from '@/components/explore/demos/GalaxyDemos';
 import { TagChip } from '@/components/PostList';
 import { PostNav } from '@/components/PostNav';
 import { TableOfContents } from '@/components/TableOfContents';
+import { getGalaxy } from '@/lib/galaxy';
 import { formatDate, getAdjacentPosts, getPosts } from '@/lib/posts';
 import { postSource } from '@/lib/source';
 
@@ -51,8 +53,8 @@ export default async function PostPage({ params }: PageProps<'/posts/[slug]'>) {
           {post && (
             <p className="font-mono text-sm text-muted">
               <time dateTime={post.date}>{formatDate(post.date)}</time>
-              <span className="mx-2">·</span>
-              {post.readingMinutes}분
+              {/* <span className="mx-2">·</span>
+              {post.readingMinutes}분 */}
             </p>
           )}
           <h1 className="mt-3 text-3xl font-bold leading-tight tracking-tight sm:text-4xl">{data.title}</h1>
@@ -67,7 +69,13 @@ export default async function PostPage({ params }: PageProps<'/posts/[slug]'>) {
         </header>
 
         <div className="prose prose-neutral max-w-none dark:prose-invert prose-headings:tracking-tight prose-a:text-accent">
-          <MDX />
+          {/* 글 데이터가 필요한 데모는 여기서 데이터를 넣어 넘긴다. 글에서는 <GalaxyDemo />, <ExploreDemo />로 쓴다 */}
+          <MDX
+            components={{
+              GalaxyDemo: () => <GalaxyDemo galaxy={getGalaxy()} />,
+              ExploreDemo: () => <ExploreDemo galaxy={getGalaxy()} />,
+            }}
+          />
         </div>
 
         <PostNav prev={prev} next={next} />

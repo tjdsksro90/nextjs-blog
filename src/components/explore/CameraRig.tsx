@@ -3,12 +3,14 @@
 import type { OrbitControls } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { useEffect, useRef, type ComponentRef, type RefObject } from 'react';
-import { Vector3, type Object3D } from 'three';
+import { Vector3, type Object3D, type PerspectiveCamera } from 'three';
 
 export const HOME_DISTANCE = 30; // 은하 전체를 볼 때 카메라 거리
 const FOCUS_DISTANCE = 3; // 행성을 볼 때 카메라 거리 = 이 값 + 행성 크기 × FOCUS_SCALE
 const FOCUS_SCALE = 3.5;
 const SPEED = 3; // 클수록 빨리 날아간다
+const MOBILE_WIDTH = 640; // 이보다 좁으면 패널이 아래에 열린다 (Tailwind sm)
+const MOBILE_SHIFT = 0.22; // 그때 화면을 위로 올릴 비율
 
 // 매 프레임 new Vector3()를 만들지 않도록 미리 만들어 재사용한다
 const goal = new Vector3();
@@ -33,13 +35,14 @@ type CameraRigProps = {
  */
 export function CameraRig({ focus, centers, controls }: CameraRigProps) {
   const flying = useRef(false);
+  const shift = useRef(0); // 지금 화면을 위로 올린 양(px)
 
   // 고른 행성이 바뀌면 다시 날아가기 시작
   useEffect(() => {
     flying.current = true;
   }, [focus]);
 
-  useFrame(({ camera }, delta) => {
+  useFrame(({ camera, size }, delta) => {
     const c = controls.current;
     if (!c) return;
 
@@ -67,6 +70,14 @@ export function CameraRig({ focus, centers, controls }: CameraRigProps) {
       // 거의 도착하면 그만 맞춘다 → 그 뒤로는 휠로 마음대로 확대, 축소할 수 있다
       if (Math.abs(distance - want) < 0.05 && c.target.distanceTo(goal) < 0.05) flying.current = false;
     }
+
+    // 4. 휴대폰 너비에서는 패널이 화면 아래쪽을 가린다 → 화면을 위로 올려서 행성이 위쪽에 보이게.
+    //    setViewOffset: 렌더링할 영역을 아래로 옮긴다 = 장면이 위로 올라가 보인다. 클릭 판정도 같이 맞춰진다
+    const wantShift = planet && size.width < MOBILE_WIDTH ? size.height * MOBILE_SHIFT : 0;
+    shift.current += (wantShift - shift.current) * t;
+    const perspective = camera as PerspectiveCamera;
+    if (shift.current > 0.5) perspective.setViewOffset(size.width, size.height, 0, shift.current, size.width, size.height);
+    else if (perspective.view?.enabled) perspective.clearViewOffset();
   });
 
   return null;

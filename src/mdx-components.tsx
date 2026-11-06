@@ -2,6 +2,8 @@ import type { MDXComponents } from 'mdx/types';
 import { Callout } from '@/components/Callout';
 import { CodeBlock } from '@/components/CodeBlock';
 import { Counter } from '@/components/Counter';
+import { FirstPlanetDemo } from '@/components/explore/demos/FirstPlanetDemo';
+import { SolarSystemDemo } from '@/components/explore/demos/SolarSystemDemo';
 import { LinkCard } from '@/components/LinkCard';
 
 // 모든 MDX 파일에 적용되는 컴포넌트 지도.
@@ -14,6 +16,10 @@ const components: MDXComponents = {
   Callout,
   Counter,
   LinkCard,
+
+  // three.js 글 속 3D 데모. 은하 데모(GalaxyDemo, ExploreDemo)는 글 데이터가 필요해서 글 페이지에서 넘긴다
+  FirstPlanetDemo,
+  SolarSystemDemo,
 };
 
 export function useMDXComponents(): MDXComponents {
