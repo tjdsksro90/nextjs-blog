@@ -15,20 +15,20 @@ tags: [회고, Next.js]
 
 ```yaml title="frontmatter 예시"
 ---
-title: 글 제목          # 필수
-date: 2026-11-05        # 필수, YYYY-MM-DD
-description: 한 줄 요약  # 목록에 보임
+title: 글 제목 # 필수
+date: 2026-11-05 # 필수, YYYY-MM-DD (같은 날 글 순서는 2026-11-05T20:30처럼 시간까지)
+description: 한 줄 요약 # 목록에 보임
 tags: [React, CSS]
-draft: true             # 초안: 개발 서버에서만 보임
+draft: true # 초안: 개발 서버에서만 보임
 ---
 ```
 
 ## 지원하는 문법
 
-| 문법 | 예시 |
-| --- | --- |
-| 굵게 | **bold** |
-| 취소선 | ~~strike~~ |
+| 문법        | 예시          |
+| ----------- | ------------- |
+| 굵게        | **bold**      |
+| 취소선      | ~~strike~~    |
 | 인라인 코드 | `const a = 1` |
 
 - [x] 표, 체크리스트 같은 GitHub 문법
@@ -57,9 +57,7 @@ const total = price * count * (1 - discount); // [!code ++]
 
 MDX라서 글 안에 React 컴포넌트를 바로 쓸 수 있다. `src/mdx-components.tsx`에 등록한 컴포넌트는 import 없이 쓴다.
 
-<Callout>
-  기본은 `note`. 참고할 내용을 적는다.
-</Callout>
+<Callout>기본은 `note`. 참고할 내용을 적는다.</Callout>
 
 <Callout type="warn" title="주의">
   `type="warn"`에 `title`을 직접 붙인 모습.
@@ -68,7 +66,8 @@ MDX라서 글 안에 React 컴포넌트를 바로 쓸 수 있다. `src/mdx-compo
 <Callout type="tip">
   문단을 여러 개 쓸 수도 있다.
 
-  두 번째 문단.
+두 번째 문단.
+
 </Callout>
 
 클라이언트 컴포넌트도 넣을 수 있다. 직접 눌러 보자.

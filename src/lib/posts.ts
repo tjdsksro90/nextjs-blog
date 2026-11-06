@@ -5,7 +5,8 @@ export type Post = {
   url: string;
   title: string;
   description: string;
-  date: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD (화면에 보이는 날짜)
+  sortKey: string; // YYYY-MM-DDTHH:mm (정렬용. 시간을 안 적었으면 날짜만)
   tags: string[];
   draft: boolean;
   readingMinutes: number; // 읽는 데 걸리는 시간(분)
@@ -22,13 +23,14 @@ export function getPosts(): Post[] {
       url: page.url,
       title: page.data.title,
       description: page.data.description ?? '',
-      date: toDateString(page.data.date),
+      date: toDateTime(page.data.date).slice(0, 10),
+      sortKey: toDateTime(page.data.date),
       tags: page.data.tags,
       draft: page.data.draft,
       readingMinutes: readingMinutes(page.data.structuredData.contents),
     }))
     .filter((post) => showDrafts || !post.draft)
-    .sort((a, b) => (a.date < b.date ? 1 : -1));
+    .sort((a, b) => (a.sortKey < b.sortKey ? 1 : -1)); // 최신순. 같은 날이면 시간이 늦은 글이 위
 }
 
 /** 최신순 글 목록을 연도별로 묶는다: [{ year: '2026', posts: [...] }, { year: '2025', ... }] */
@@ -82,8 +84,16 @@ function readingMinutes(contents: { content: string }[]) {
   return Math.max(1, Math.round(chars / CHARS_PER_MINUTE));
 }
 
-function toDateString(date: string | Date) {
-  return typeof date === 'string' ? date : date.toISOString().slice(0, 10);
+/**
+ * frontmatter 날짜를 'YYYY-MM-DD' 또는 'YYYY-MM-DDTHH:mm' 문자열로 맞춘다.
+ * YAML이 Date로 읽은 값은 시간대 없이 적힌 그대로를 UTC로 보관하므로, toISOString()으로 꺼내면 적은 값과 같다.
+ */
+function toDateTime(date: string | Date) {
+  if (typeof date !== 'string') {
+    const iso = date.toISOString(); // 2026-11-06T20:38:00.000Z
+    return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : iso.slice(0, 16);
+  }
+  return date.slice(0, 16);
 }
 
 /** 2026-11-05 → 2026년 11월 5일 */

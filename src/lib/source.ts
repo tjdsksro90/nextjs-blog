@@ -8,8 +8,9 @@ import { z } from 'zod';
  * pageSchema에는 title(필수), description(선택)이 이미 들어 있다.
  */
 export const postSchema = pageSchema.extend({
-  // YAML의 2026-11-05는 Date로 읽히고, 따옴표로 감싸면 문자열이 된다. 둘 다 받는다.
-  date: z.iso.date().or(z.date()),
+  // 2026-11-05 또는 같은 날 글 순서를 정하고 싶으면 시간까지: 2026-11-05T20:30
+  // YAML은 따옴표 없는 날짜를 Date로 읽기도 해서 Date도 받는다.
+  date: z.union([z.iso.date(), z.iso.datetime({ local: true }), z.date()]),
   tags: z.array(z.string()).default([]),
   draft: z.boolean().default(false), // true면 개발 서버에서만 보인다
 });
