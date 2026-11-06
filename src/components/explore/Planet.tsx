@@ -1,8 +1,8 @@
 'use client';
 
-import { useFrame } from '@react-three/fiber';
+import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import { useRef, type RefObject } from 'react';
-import type { Group, Mesh } from 'three';
+import type { Group, Mesh, Object3D } from 'three';
 import type { AnchorMap } from './PlanetLabels';
 import type { GalaxyTag } from './types';
 
@@ -26,6 +26,10 @@ type PlanetProps = {
   total: number; // 태그 수
   settings: GalaxySettings;
   anchors: RefObject<AnchorMap>; // 이름표 자리를 등록해 두는 곳 (PlanetLabels가 읽는다)
+  centers: RefObject<Map<string, Object3D>>; // 행성 중심을 등록해 두는 곳 (CameraRig가 읽는다)
+  hovered: boolean; // 마우스가 올라가 있는지
+  onSelect: (tag: string) => void;
+  onHover: (tag: string | null) => void;
 };
 
 /**
@@ -47,7 +51,7 @@ type PlanetProps = {
  * 자식은 부모의 위치와 회전을 그대로 물려받는다.
  * 그래서 공전축만 돌리면, 그 안의 행성은 sin, cos 계산 없이도 원을 그리며 항성 주위를 돈다.
  */
-export function Planet({ data, index, total, settings, anchors }: PlanetProps) {
+export function Planet({ data, index, total, settings, anchors, centers, hovered, onSelect, onHover }: PlanetProps) {
   const orbit = useRef<Group>(null);
   const body = useRef<Mesh>(null);
   const moonOrbits = useRef<(Group | null)[]>([]);
@@ -70,6 +74,13 @@ export function Planet({ data, index, total, settings, anchors }: PlanetProps) {
     });
   });
 
+  // R3F의 클릭: 화면에서 마우스가 가리키는 3D 물체를 자동으로 찾아(레이캐스팅) 그 Mesh의 onClick을 부른다
+  function handleClick(e: ThreeEvent<MouseEvent>) {
+    e.stopPropagation(); // 뒤에 겹친 다른 행성까지 클릭되지 않게
+    if (e.delta > 4) return; // delta: 누르고 뗄 때까지 움직인 거리(px). 드래그로 돌린 거면 클릭으로 치지 않는다
+    onSelect(data.tag);
+  }
+
   return (
     // 바깥 group은 기울기와 시작 각도만, 안쪽 group(공전축)은 useFrame이 y로 계속 돌린다.
     // 한 group에 둘 다 주면, 다시 그릴 때 rotation prop이 돌던 각도를 처음 값으로 되돌려 버린다
@@ -82,11 +93,33 @@ export function Planet({ data, index, total, settings, anchors }: PlanetProps) {
           </mesh>
         )}
 
-        {/* 행성 자리 */}
-        <group position={[distance, 0, 0]}>
-          <mesh ref={body}>
+        {/* 행성 자리. 카메라가 날아올 목표 지점으로 등록한다 */}
+        <group
+          position={[distance, 0, 0]}
+          userData={{ size: hasRing ? size * 1.8 : size }} // 카메라가 얼마나 떨어져서 볼지 정할 때 쓴다 (고리까지 포함한 크기)
+          ref={(el) => {
+            if (el) centers.current.set(data.tag, el);
+            else centers.current.delete(data.tag);
+          }}
+        >
+          <mesh
+            ref={body}
+            onClick={handleClick}
+            onPointerOver={(e) => {
+              e.stopPropagation();
+              onHover(data.tag);
+            }}
+            onPointerOut={() => onHover(null)}
+          >
             <icosahedronGeometry args={[size, 1]} />
-            <meshStandardMaterial color={color} roughness={0.7} flatShading wireframe={settings.wireframe} />
+            {/* 마우스를 올리면 emissive로 살짝 밝게 */}
+            <meshStandardMaterial
+              color={color}
+              emissive={hovered ? '#333355' : '#000000'}
+              roughness={0.7}
+              flatShading
+              wireframe={settings.wireframe}
+            />
           </mesh>
 
           {hasRing && (
