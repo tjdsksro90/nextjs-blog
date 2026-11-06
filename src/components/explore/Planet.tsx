@@ -1,119 +1,127 @@
 'use client';
 
 import { useFrame } from '@react-three/fiber';
-import { useControls } from 'leva';
-import { useRef } from 'react';
+import { useRef, type RefObject } from 'react';
 import type { Group, Mesh } from 'three';
+import type { AnchorMap } from './PlanetLabels';
+import type { GalaxyTag } from './types';
+
+/** 행성 색. n번째 태그는 n번째 색 (개수보다 태그가 많으면 처음부터 다시) */
+const PALETTE = ['#f0997b', '#85b7eb', '#5dcaa5', '#afa9ec', '#fac775', '#ed93b1', '#97c459'];
+
+/** 은하 전체에 같이 적용하는 값. GalaxyCanvas의 Leva 패널에서 조절한다 */
+export type GalaxySettings = {
+  firstOrbit: number; // 첫 번째(가장 안쪽) 궤도 반지름
+  spacing: number; // 궤도 사이 간격
+  speed: number; // 공전 속도 배율
+  moonSpeed: number;
+  showOrbits: boolean;
+  showLabels: boolean;
+  wireframe: boolean;
+};
+
+type PlanetProps = {
+  data: GalaxyTag;
+  index: number; // 몇 번째 태그인지 (0 = 글이 가장 많은 태그)
+  total: number; // 태그 수
+  settings: GalaxySettings;
+  anchors: RefObject<AnchorMap>; // 이름표 자리를 등록해 두는 곳 (PlanetLabels가 읽는다)
+};
 
 /**
- * 행성 하나와 그 궤도, 위성들.
+ * 태그 하나 = 행성 하나, 그 태그의 글 하나 = 위성 하나.
+ * 위치, 크기, 색, 속도는 손으로 정하지 않고 index와 글 수로 계산한다.
+ * 그래서 태그가 4개든 40개든 같은 코드로 그려진다.
  *
- * group: 궤도면 기울기 (고정)
+ * group: 궤도면 기울기 + 시작 각도 (고정)
  *  └─ group: 공전축 (원점 = 항성 자리, 매 프레임 y축으로 돈다)
  *      ├─ mesh: 궤도선 (얇은 도넛)
  *      └─ group: 행성 자리 (공전축에서 x로 distance만큼 떨어짐)
  *          ├─ mesh: 행성 본체 (혼자 자전)
- *          ├─ mesh: 고리 (기울어진 채 고정)
- *          └─ group × n: 위성 시작 각도 (고정)
+ *          ├─ mesh: 고리 (글 3편 이상일 때만)
+ *          ├─ group: 이름표 기준점 (행성 바로 아래. 화면에 그리는 건 PlanetLabels)
+ *          └─ group × 글 수: 위성 시작 각도 (고정)
  *              └─ group: 위성 공전축 (행성 중심에서 돈다)
- *                  └─ mesh: 위성 (공전축에서 조금 떨어진 자리)
+ *                  └─ mesh: 위성
  *
  * 자식은 부모의 위치와 회전을 그대로 물려받는다.
  * 그래서 공전축만 돌리면, 그 안의 행성은 sin, cos 계산 없이도 원을 그리며 항성 주위를 돈다.
- * 위성도 같다. 위성 공전축만 돌리면 행성 주위를 돌고, 행성이 움직이면 같이 따라간다.
  */
-export function Planet() {
+export function Planet({ data, index, total, settings, anchors }: PlanetProps) {
   const orbit = useRef<Group>(null);
   const body = useRef<Mesh>(null);
   const moonOrbits = useRef<(Group | null)[]>([]);
 
-  const planet = useControls('Planet', {
-    radius: { value: 1, min: 0.2, max: 3, step: 0.1 },
-    detail: { value: 1, min: 0, max: 5, step: 1 }, // 0이면 면 20개, 클수록 동그래진다
-    color: '#f0997b',
-    roughness: { value: 0.7, min: 0, max: 1, step: 0.05 },
-    flatShading: true,
-    spin: { value: 0.4, min: 0, max: 3, step: 0.1 },
-    wireframe: false, // 켜면 Geometry 뼈대(선)만 보인다
-  });
-  const extras = useControls('Ring & Moons', {
-    ring: true,
-    ringTilt: { value: 1.3, min: 0, max: Math.PI, step: 0.05 }, // 라디안. π/2(1.57)면 수평
-    moons: { value: 4, min: 0, max: 10, step: 1 }, // 나중에는 이 태그의 글 수
-    moonSpeed: { value: 1.2, min: 0, max: 5, step: 0.1 },
-  });
-  const orbitControls = useControls('Orbit', {
-    distance: { value: 6, min: 3, max: 20, step: 0.5 }, // 항성에서 행성까지 거리
-    speed: { value: 0.15, min: 0, max: 2, step: 0.01 }, // 1초에 도는 각도(라디안)
-    tilt: { value: 0.1, min: -0.6, max: 0.6, step: 0.01 }, // 궤도면 기울기
-    showOrbit: true,
-  });
+  const postCount = data.posts.length;
+  const distance = settings.firstOrbit + index * settings.spacing; // 안쪽부터 차례로 바깥 궤도
+  const size = Math.min(0.35 + postCount * 0.12, 1.2); // 글이 많을수록 크게, 너무 커지지 않게 1.2까지
+  const color = PALETTE[index % PALETTE.length];
+  const hasRing = postCount >= 3;
+  const orbitSpeed = (0.15 / (1 + index * 0.25)) * settings.speed; // 바깥 궤도일수록 느리게
+  const startAngle = (index / total) * Math.PI * 2; // 처음에 한 줄로 서 있지 않게 둘레에 고르게
+  const tilt = Math.sin(index * 7.3) * 0.15; // 궤도마다 조금씩 다른 기울기 (난수 대신 sin으로, 항상 같은 값)
 
-  // useFrame: 매 프레임(1초에 약 60번) 실행된다. delta는 지난 프레임부터 흐른 시간(초)
   useFrame((_, delta) => {
-    if (orbit.current) orbit.current.rotation.y += delta * orbitControls.speed; // 공전
-    if (body.current) body.current.rotation.y += delta * planet.spin; // 자전
+    if (orbit.current) orbit.current.rotation.y += delta * orbitSpeed; // 공전
+    if (body.current) body.current.rotation.y += delta * 0.4; // 자전
     moonOrbits.current.forEach((moonOrbit, k) => {
       // 안쪽 위성일수록 빠르게 (실제 행성계도 가까울수록 빨리 돈다)
-      if (moonOrbit) moonOrbit.rotation.y += delta * extras.moonSpeed * (1 - k * 0.06);
+      if (moonOrbit) moonOrbit.rotation.y += delta * settings.moonSpeed * (1 - k * 0.05);
     });
   });
 
   return (
-    // 바깥 group은 궤도면 기울기만, 안쪽 group(공전축)은 useFrame이 y로 계속 돌린다.
-    // 한 group에 둘 다 주면, 슬라이더를 움직여 다시 그릴 때 rotation prop이 돌던 각도를 0으로 되돌려 버린다
-    <group rotation={[orbitControls.tilt, 0, 0]}>
+    // 바깥 group은 기울기와 시작 각도만, 안쪽 group(공전축)은 useFrame이 y로 계속 돌린다.
+    // 한 group에 둘 다 주면, 다시 그릴 때 rotation prop이 돌던 각도를 처음 값으로 되돌려 버린다
+    <group rotation={[tilt, startAngle, 0]}>
       <group ref={orbit}>
-        {/* 궤도선: 공전축 안에 있으니 궤도면과 같이 기울어진다. 도넛은 돌아도 모양이 같아서 공전해도 티가 안 난다 */}
-        {orbitControls.showOrbit && (
+        {settings.showOrbits && (
           <mesh rotation={[Math.PI / 2, 0, 0]}>
-            <torusGeometry args={[orbitControls.distance, 0.01, 4, 160]} />
+            <torusGeometry args={[distance, 0.01, 4, 160]} />
             <meshBasicMaterial color="#2c3458" />
           </mesh>
         )}
 
         {/* 행성 자리 */}
-        <group position={[orbitControls.distance, 0, 0]}>
+        <group position={[distance, 0, 0]}>
           <mesh ref={body}>
-            <icosahedronGeometry args={[planet.radius, planet.detail]} />
-            {/* flatShading은 바뀌면 셰이더를 다시 만들어야 해서 key로 Material을 새로 만든다 */}
-            <meshStandardMaterial
-              key={String(planet.flatShading)}
-              color={planet.color}
-              roughness={planet.roughness}
-              flatShading={planet.flatShading}
-              wireframe={planet.wireframe}
-            />
+            <icosahedronGeometry args={[size, 1]} />
+            <meshStandardMaterial color={color} roughness={0.7} flatShading wireframe={settings.wireframe} />
           </mesh>
 
-          {/* 고리: 도넛 모양(TorusGeometry). args = [중심에서 관 가운데까지 반지름, 관 굵기, 관 둘레 분할, 도넛 둘레 분할] */}
-          {extras.ring && (
-            <mesh rotation={[extras.ringTilt, 0, 0]}>
-              <torusGeometry args={[planet.radius * 1.7, 0.03, 8, 64]} />
-              <meshBasicMaterial color={planet.color} transparent opacity={0.6} wireframe={planet.wireframe} />
+          {hasRing && (
+            <mesh rotation={[1.3, 0, 0]}>
+              <torusGeometry args={[size * 1.7, 0.03, 8, 64]} />
+              <meshBasicMaterial color={color} transparent opacity={0.6} wireframe={settings.wireframe} />
             </mesh>
           )}
 
-          {/* 위성마다 공전축을 하나씩 둔다.
-              바깥 group: 시작 각도와 기울기(고정). 조금씩 달리해서 한 줄로 겹치지 않게
-              안쪽 group: 위성 공전축(useFrame이 돌림) */}
-          {Array.from({ length: extras.moons }, (_, k) => (
-            <group key={k} rotation={[Math.sin(k * 1.7) * 0.4, (k / extras.moons) * Math.PI * 2, 0]}>
+          {/* 이름표 기준점: 모양이 없는 빈 group. 행성과 같이 움직이니, 이 점의 좌표를 읽으면 이름표 자리가 된다 */}
+          <group
+            position={[0, -(size + 0.45), 0]}
+            ref={(el) => {
+              if (el) anchors.current.set(data.tag, el);
+              else anchors.current.delete(data.tag);
+            }}
+          />
+
+          {/* 글 하나 = 위성 하나 */}
+          {data.posts.map((post, k) => (
+            <group key={post.url} rotation={[Math.sin(k * 1.7) * 0.4, (k / postCount) * Math.PI * 2, 0]}>
               <group
                 ref={(el) => {
                   moonOrbits.current[k] = el;
                 }}
               >
-                <mesh position={[planet.radius + 0.45 + k * 0.12, 0, 0]}>
-                  {/* 팔면체: 꼭짓점 6개짜리 각진 보석 모양 */}
-                  <octahedronGeometry args={[0.09]} />
-                  {/* emissive: 빛을 받지 않아도 스스로 내는 색. 행성 색으로 은은하게 빛나게 */}
+                {/* 위성이 많으면 간격을 좁혀서 너무 멀리 퍼지지 않게 */}
+                <mesh position={[size + 0.35 + k * 0.08, 0, 0]}>
+                  <octahedronGeometry args={[0.08]} />
                   <meshStandardMaterial
                     color="#ffffff"
-                    emissive={planet.color}
+                    emissive={color}
                     emissiveIntensity={0.6}
                     flatShading
-                    wireframe={planet.wireframe}
+                    wireframe={settings.wireframe}
                   />
                 </mesh>
               </group>
